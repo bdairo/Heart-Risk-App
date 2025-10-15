@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Your optional globals (after Tailwind so you can override) */
+:root {
+  --brand: #111827;
+}
+html, body, #root { height: 100%; }
