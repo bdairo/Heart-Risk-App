@@ -32,78 +32,83 @@ FEATURE_NAMES = ['Age', 'Sex', 'ChestPainType', 'Cholesterol', 'FastingBS',
 
 # Create SHAP explainers
 explainer_rf = shap.TreeExplainer(best_model)
-explainer_xgb = shap.TreeExplainer(best_xgb)
+try:
+    explainer_xgb = shap.TreeExplainer(best_xgb)
+except Exception as e:
+    print(f"Warning: Could not create XGBoost explainer: {e}")
+    explainer_xgb = None
 
 @app.route("/")
 def home():
     """Home page with input form"""
     return render_template('index.html')
 
-@app.route("/predict", methods=['POST'])
-def predict():
-    """Make prediction and return results with visualizations"""
-    try:
-        # Get form data
-        data = request.form
+# @app.route("/predict", methods=['POST'])
+# def predict():
+#     """Make prediction and return results with visualizations"""
+#     try:
+#         # Get form data
+#         data = request.form
         
-        # Parse and encode input
-        age = float(data['age'])
-        sex = sex_encoder.transform([data['sex']])[0]
-        chest_pain = chestpain_encoder.transform([data['chest_pain']])[0]
-        cholesterol = float(data['cholesterol'])
-        fasting_bs = int(data['fasting_bs'])
-        max_hr = float(data['max_hr'])
-        exercise_angina = exercise_encoder.transform([data['exercise_angina']])[0]
-        oldpeak = float(data['oldpeak'])
-        st_slope = slope_encoder.transform([data['st_slope']])[0]
+#         # Parse and encode input
+#         age = float(data['age'])
+#         sex = sex_encoder.transform([data['sex']])[0]
+#         chest_pain = chestpain_encoder.transform([data['chest_pain']])[0]
+#         cholesterol = float(data['cholesterol'])
+#         fasting_bs = int(data['fasting_bs'])
+#         max_hr = float(data['max_hr'])
+#         exercise_angina = exercise_encoder.transform([data['exercise_angina']])[0]
+#         oldpeak = float(data['oldpeak'])
+#         st_slope = slope_encoder.transform([data['st_slope']])[0]
         
-        # Create feature array
-        features = np.array([[age, sex, chest_pain, cholesterol, fasting_bs, 
-                            max_hr, exercise_angina, oldpeak, st_slope]])
+#         # Create feature array
+#         features = np.array([[age, sex, chest_pain, cholesterol, fasting_bs, 
+#                             max_hr, exercise_angina, oldpeak, st_slope]])
         
-        # Make predictions
-        pred_rf = best_model.predict(features)[0]
-        pred_prob_rf = best_model.predict_proba(features)[0]
+#         # Make predictions
+#         pred_rf = best_model.predict(features)[0]
+#         pred_prob_rf = best_model.predict_proba(features)[0]
         
-        pred_xgb = best_xgb.predict(features)[0]
-        pred_prob_xgb = best_xgb.predict_proba(features)[0]
+#         pred_xgb = best_xgb.predict(features)[0]
+#         pred_prob_xgb = best_xgb.predict_proba(features)[0]
         
-        pred_nn = np.argmax(model_nn.predict(features, verbose=0), axis=1)[0]
-        pred_prob_nn = model_nn.predict(features, verbose=0)[0]
+#         pred_nn = np.argmax(model_nn.predict(features, verbose=0), axis=1)[0]
+#         pred_prob_nn = model_nn.predict(features, verbose=0)[0]
         
-        # Generate SHAP visualizations
-        shap_plot_rf = generate_shap_plot(explainer_rf, features, 'Random Forest')
-        shap_plot_xgb = generate_shap_plot(explainer_xgb, features, 'XGBoost')
+#         # Generate SHAP visualizations
+#         shap_plot_rf = generate_shap_plot(explainer_rf, features, 'Random Forest')
+#         shap_plot_xgb = generate_shap_plot(explainer_xgb, features, 'XGBoost') if explainer_xgb else None
         
-        # Generate feature importance plots
-        feature_importance_rf = generate_feature_importance(best_model, 'Random Forest')
-        feature_importance_xgb = generate_feature_importance(best_xgb, 'XGBoost')
+#         # Generate feature importance plots
+#         feature_importance_rf = generate_feature_importance(best_model, 'Random Forest')
+#         feature_importance_xgb = generate_feature_importance(best_xgb, 'XGBoost')
         
-        # Generate individual feature contribution
-        feature_contrib_rf = generate_feature_contribution(explainer_rf, features, pred_rf)
-        feature_contrib_xgb = generate_feature_contribution(explainer_xgb, features, pred_xgb)
+#         # Generate individual feature contribution
+#         feature_contrib_rf = generate_feature_contribution(explainer_rf, features, pred_rf)
+#         feature_contrib_xgb = generate_feature_contribution(explainer_xgb, features, pred_xgb) if explainer_xgb else []
         
-        return render_template('results.html',
-                             pred_rf=int(pred_rf),
-                             pred_prob_rf=float(pred_prob_rf[1]),
-                             pred_xgb=int(pred_xgb),
-                             pred_prob_xgb=float(pred_prob_xgb[1]),
-                             pred_nn=int(pred_nn),
-                             pred_prob_nn=float(pred_prob_nn[1]),
-                             shap_plot_rf=shap_plot_rf,
-                             shap_plot_xgb=shap_plot_xgb,
-                             feature_importance_rf=feature_importance_rf,
-                             feature_importance_xgb=feature_importance_xgb,
-                             feature_contrib_rf=feature_contrib_rf,
-                             feature_contrib_xgb=feature_contrib_xgb)
+#         return render_template('results.html',
+#                              pred_rf=int(pred_rf),
+#                              pred_prob_rf=float(pred_prob_rf[1]),
+#                              pred_xgb=int(pred_xgb),
+#                              pred_prob_xgb=float(pred_prob_xgb[1]),
+#                              pred_nn=int(pred_nn),
+#                              pred_prob_nn=float(pred_prob_nn[1]),
+#                              shap_plot_rf=shap_plot_rf,
+#                              shap_plot_xgb=shap_plot_xgb,
+#                              feature_importance_rf=feature_importance_rf,
+#                              feature_importance_xgb=feature_importance_xgb,
+#                              feature_contrib_rf=feature_contrib_rf,
+#                              feature_contrib_xgb=feature_contrib_xgb)
     
-    except Exception as e:
-        return render_template('error.html', error=str(e))
+#     except Exception as e:
+#         return render_template('error.html', error=str(e))
 
 
 # JSON API for frontend consumption
 @app.route("/api/predict", methods=["POST"])
 def api_predict():
+    print('in api_predict');
     """Accept JSON payload, return model predictions as JSON (no plots)."""
     try:
         payload = request.get_json(force=True)
@@ -166,6 +171,7 @@ def api_predict():
 
 @app.route("/api/explain", methods=["POST"])
 def api_explain():
+    print('in api_explain');
     """Return SHAP plots and feature contributions for RF and XGB."""
     try:
         payload = request.get_json(force=True)
@@ -193,13 +199,14 @@ def api_explain():
         ]])
 
         shap_plot_rf = generate_shap_plot(explainer_rf, features, 'Random Forest')
-        shap_plot_xgb = generate_shap_plot(explainer_xgb, features, 'XGBoost')
-
+        print('shap_plot_rf', shap_plot_rf);
+        shap_plot_xgb = generate_shap_plot(explainer_xgb, features, 'XGBoost') if explainer_xgb else None
+        print('shap_plot_xgb', shap_plot_xgb);
         feature_importance_rf = generate_feature_importance(best_model, 'Random Forest')
         feature_importance_xgb = generate_feature_importance(best_xgb, 'XGBoost')
 
         feature_contrib_rf = generate_feature_contribution(explainer_rf, features, 1)
-        feature_contrib_xgb = generate_feature_contribution(explainer_xgb, features, 1)
+        feature_contrib_xgb = generate_feature_contribution(explainer_xgb, features, 1) if explainer_xgb else []
 
         return jsonify({
             "ok": True,
@@ -220,15 +227,36 @@ def api_explain():
 
 def generate_shap_plot(explainer, features, model_name):
     """Generate SHAP waterfall plot for individual prediction"""
+    print('in generate_shap_plot');
+    print('explainer', explainer);
+    print('features', features);
+    print('model_name', model_name);
+    if explainer is None:
+        return None
     shap_values = explainer.shap_values(features)
-    
+    print('shap_values', shap_values);
+
     # For binary classification, use positive class
     if isinstance(shap_values, list):
         shap_values = shap_values[1]
     
+    # Handle 3D array (samples, features, classes) - take first sample and positive class
+    if len(shap_values.shape) == 3:
+        shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
+    # Handle matrix of explanations - take the first row (single prediction)
+    elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
+        shap_values = shap_values[0]
+
+    print(f"About to create SHAP plot for {model_name}")
+    print(f"shap_values shape: {shap_values.shape}")
+    print(f"shap_values: {shap_values}")
+    print(f"features[0]: {features[0]}")
+    print(f"FEATURE_NAMES: {FEATURE_NAMES}")
+    print(f"explainer.expected_value: {explainer.expected_value}")
+    
     plt.figure(figsize=(10, 6))
     shap.waterfall_plot(shap.Explanation(
-        values=shap_values[0],
+        values=shap_values,
         base_values=explainer.expected_value if not isinstance(explainer.expected_value, np.ndarray) else explainer.expected_value[1],
         data=features[0],
         feature_names=FEATURE_NAMES
@@ -244,6 +272,7 @@ def generate_shap_plot(explainer, features, model_name):
     img_base64 = base64.b64encode(img_buffer.read()).decode()
     plt.close()
     
+    print('returning img_base64', img_base64);
     return img_base64
 
 def generate_feature_importance(model, model_name):
@@ -269,19 +298,28 @@ def generate_feature_importance(model, model_name):
 
 def generate_feature_contribution(explainer, features, prediction):
     """Generate feature contribution table data"""
+    if explainer is None:
+        return []
     shap_values = explainer.shap_values(features)
     
     # For binary classification, use positive class
     if isinstance(shap_values, list):
         shap_values = shap_values[1]
     
+    # Handle 3D array (samples, features, classes) - take first sample and positive class
+    if len(shap_values.shape) == 3:
+        shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
+    # Handle matrix of explanations - take the first row (single prediction)
+    elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
+        shap_values = shap_values[0]
+    
     contributions = []
     for i, feature_name in enumerate(FEATURE_NAMES):
         contributions.append({
             'feature': feature_name,
             'value': float(features[0][i]),
-            'contribution': float(shap_values[0][i]),
-            'impact': 'Increases Risk' if shap_values[0][i] > 0 else 'Decreases Risk'
+            'contribution': float(shap_values[i]),
+            'impact': 'Increases Risk' if shap_values[i] > 0 else 'Decreases Risk'
         })
     
     # Sort by absolute contribution

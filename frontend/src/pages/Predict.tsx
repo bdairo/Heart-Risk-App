@@ -62,9 +62,11 @@ export default function PredictionForm() {
       const res = await predict(form);
       if (!res.ok) throw new Error(res.error || "Prediction failed");
       setResult(res);
+      console.log('result', res);
       // Fire and await explanations
       const exp = await explain(form);
       if (exp.ok) setExplanations(exp);
+      console.log('explanations', exp);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unexpected error";
       setError(message);
@@ -211,6 +213,10 @@ export default function PredictionForm() {
           </Alert>
         )}
       </Paper>
+
+
+
+
 
       {result?.predictions && (
         <Box sx={{ mb: 4 }}>
