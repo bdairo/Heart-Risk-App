@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify
+from flask_cors import CORS
 import joblib
 import numpy as np
 import pandas as pd
@@ -11,17 +12,19 @@ import base64
 from keras.models import load_model
 
 app = Flask(__name__)
+CORS(app)
 
 # Load models and encoders
-best_model = joblib.load('../best_model.pkl')  # Random Forest
-best_xgb = joblib.load('../best_xgb.pkl')  # XGBoost
-model_nn = load_model('../model_nn.keras')  # Neural Network
+# Use correct relative paths from backend/ directory
+best_model = joblib.load('models/best_model.pkl')  # Random Forest
+best_xgb = joblib.load('models/best_xgb.pkl')  # XGBoost
+model_nn = load_model('models/model_nn.keras')  # Neural Network
 
 # Load encoders
-sex_encoder = joblib.load('../sex_encoder.pkl')
-chestpain_encoder = joblib.load('../chestpain_encoder.pkl')
-exercise_encoder = joblib.load('../exercise_encoder.pkl')
-slope_encoder = joblib.load('../slope_encoder.pkl')
+sex_encoder = joblib.load('models/sex_encoder.pkl')
+chestpain_encoder = joblib.load('models/chestpain_encoder.pkl')
+exercise_encoder = joblib.load('models/exercise_encoder.pkl')
+slope_encoder = joblib.load('models/slope_encoder.pkl')
 
 # Feature names (after dropping RestingBP and RestingECG)
 FEATURE_NAMES = ['Age', 'Sex', 'ChestPainType', 'Cholesterol', 'FastingBS', 
@@ -96,6 +99,124 @@ def predict():
     
     except Exception as e:
         return render_template('error.html', error=str(e))
+
+
+# JSON API for frontend consumption
+@app.route("/api/predict", methods=["POST"])
+def api_predict():
+    """Accept JSON payload, return model predictions as JSON (no plots)."""
+    try:
+        payload = request.get_json(force=True)
+
+        # Extract and encode input features
+        age = float(payload["age"])  # numeric
+        sex = sex_encoder.transform([payload["sex"]])[0]
+        chest_pain = chestpain_encoder.transform([payload["chest_pain_type"]])[0]
+        cholesterol = float(payload["cholesterol"])  # numeric
+        fasting_bs = int(payload["fasting_bs"])  # 1 if FastingBS >= 120 else 0
+        max_hr = float(payload["max_hr"])  # numeric
+        exercise_angina = exercise_encoder.transform([payload["exercise_angina"]])[0]
+        oldpeak = float(payload["oldpeak"])  # numeric
+        st_slope = slope_encoder.transform([payload["st_slope"]])[0]
+
+        features = np.array([[
+            age,
+            sex,
+            chest_pain,
+            cholesterol,
+            fasting_bs,
+            max_hr,
+            exercise_angina,
+            oldpeak,
+            st_slope,
+        ]])
+
+        # Predictions
+        pred_rf = int(best_model.predict(features)[0])
+        prob_rf = float(best_model.predict_proba(features)[0][1])
+
+        pred_xgb = int(best_xgb.predict(features)[0])
+        prob_xgb = float(best_xgb.predict_proba(features)[0][1])
+
+        pred_nn = int(np.argmax(model_nn.predict(features, verbose=0), axis=1)[0])
+        prob_nn = float(model_nn.predict(features, verbose=0)[0][1])
+
+        return jsonify({
+            "ok": True,
+            "features": {
+                "Age": age,
+                "Sex": payload["sex"],
+                "ChestPainType": payload["chest_pain_type"],
+                "Cholesterol": cholesterol,
+                "FastingBS": fasting_bs,
+                "MaxHR": max_hr,
+                "ExerciseAngina": payload["exercise_angina"],
+                "Oldpeak": oldpeak,
+                "ST_Slope": payload["st_slope"],
+            },
+            "predictions": {
+                "random_forest": {"label": pred_rf, "probability": prob_rf},
+                "xgboost": {"label": pred_xgb, "probability": prob_xgb},
+                "neural_net": {"label": pred_nn, "probability": prob_nn},
+            }
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.route("/api/explain", methods=["POST"])
+def api_explain():
+    """Return SHAP plots and feature contributions for RF and XGB."""
+    try:
+        payload = request.get_json(force=True)
+
+        age = float(payload["age"])
+        sex = sex_encoder.transform([payload["sex"]])[0]
+        chest_pain = chestpain_encoder.transform([payload["chest_pain_type"]])[0]
+        cholesterol = float(payload["cholesterol"]) 
+        fasting_bs = int(payload["fasting_bs"]) 
+        max_hr = float(payload["max_hr"]) 
+        exercise_angina = exercise_encoder.transform([payload["exercise_angina"]])[0]
+        oldpeak = float(payload["oldpeak"]) 
+        st_slope = slope_encoder.transform([payload["st_slope"]])[0]
+
+        features = np.array([[
+            age,
+            sex,
+            chest_pain,
+            cholesterol,
+            fasting_bs,
+            max_hr,
+            exercise_angina,
+            oldpeak,
+            st_slope,
+        ]])
+
+        shap_plot_rf = generate_shap_plot(explainer_rf, features, 'Random Forest')
+        shap_plot_xgb = generate_shap_plot(explainer_xgb, features, 'XGBoost')
+
+        feature_importance_rf = generate_feature_importance(best_model, 'Random Forest')
+        feature_importance_xgb = generate_feature_importance(best_xgb, 'XGBoost')
+
+        feature_contrib_rf = generate_feature_contribution(explainer_rf, features, 1)
+        feature_contrib_xgb = generate_feature_contribution(explainer_xgb, features, 1)
+
+        return jsonify({
+            "ok": True,
+            "feature_names": FEATURE_NAMES,
+            "plots": {
+                "shap_rf": shap_plot_rf,
+                "shap_xgb": shap_plot_xgb,
+                "importance_rf": feature_importance_rf,
+                "importance_xgb": feature_importance_xgb
+            },
+            "contributions": {
+                "random_forest": feature_contrib_rf,
+                "xgboost": feature_contrib_xgb
+            }
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 def generate_shap_plot(explainer, features, model_name):
     """Generate SHAP waterfall plot for individual prediction"""
