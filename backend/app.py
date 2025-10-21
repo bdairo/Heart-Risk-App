@@ -10,6 +10,10 @@ import matplotlib.pyplot as plt
 import io
 import base64
 from keras.models import load_model
+import json
+import uuid
+from datetime import datetime
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -29,6 +33,49 @@ slope_encoder = joblib.load('models/slope_encoder.pkl')
 # Feature names (after dropping RestingBP and RestingECG)
 FEATURE_NAMES = ['Age', 'Sex', 'ChestPainType', 'Cholesterol', 'FastingBS', 
                  'MaxHR', 'ExerciseAngina', 'Oldpeak', 'ST_Slope']
+
+# Audit logging
+AUDIT_LOG_FILE = 'audit_log.jsonl'
+
+def log_prediction(prediction_id, input_data, predictions, risk_category, model_agreement, timestamp):
+    """Log prediction for audit trail"""
+    audit_entry = {
+        'prediction_id': prediction_id,
+        'timestamp': timestamp,
+        'input_data': input_data,
+        'predictions': predictions,
+        'risk_category': risk_category,
+        'model_agreement': model_agreement,
+        'model_versions': {
+            'random_forest': '1.0',
+            'xgboost': '1.0', 
+            'neural_network': '1.0'
+        }
+    }
+    
+    # Append to audit log file
+    with open(AUDIT_LOG_FILE, 'a') as f:
+        f.write(json.dumps(audit_entry) + '\n')
+
+def calculate_risk_category(avg_probability):
+    """Calculate risk category based on average probability"""
+    if avg_probability < 0.3:
+        return 'Low'
+    elif avg_probability < 0.6:
+        return 'Moderate'
+    else:
+        return 'High'
+
+def calculate_model_agreement(predictions):
+    """Calculate agreement between models"""
+    probs = [
+        predictions['random_forest']['probability'],
+        predictions['xgboost']['probability'],
+        predictions['neural_net']['probability']
+    ]
+    mean = np.mean(probs)
+    std_dev = np.std(probs)
+    return max(0, 1 - (std_dev * 2))
 
 # Create SHAP explainers
 explainer_rf = shap.TreeExplainer(best_model)
@@ -146,8 +193,44 @@ def api_predict():
         pred_nn = int(np.argmax(model_nn.predict(features, verbose=0), axis=1)[0])
         prob_nn = float(model_nn.predict(features, verbose=0)[0][1])
 
+        # Calculate risk metrics
+        predictions = {
+            "random_forest": {"label": pred_rf, "probability": prob_rf},
+            "xgboost": {"label": pred_xgb, "probability": prob_xgb},
+            "neural_net": {"label": pred_nn, "probability": prob_nn},
+        }
+        
+        # Calculate average risk and model agreement
+        avg_probability = (prob_rf + prob_xgb + prob_nn) / 3
+        risk_category = calculate_risk_category(avg_probability)
+        model_agreement = calculate_model_agreement(predictions)
+        
+        # Generate prediction ID and log for audit trail
+        prediction_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+        
+        log_prediction(
+            prediction_id=prediction_id,
+            input_data={
+                "age": age,
+                "sex": payload["sex"],
+                "chest_pain_type": payload["chest_pain_type"],
+                "cholesterol": cholesterol,
+                "fasting_bs": fasting_bs,
+                "max_hr": max_hr,
+                "exercise_angina": payload["exercise_angina"],
+                "oldpeak": oldpeak,
+                "st_slope": payload["st_slope"],
+            },
+            predictions=predictions,
+            risk_category=risk_category,
+            model_agreement=model_agreement,
+            timestamp=timestamp
+        )
+
         return jsonify({
             "ok": True,
+            "prediction_id": prediction_id,
             "features": {
                 "Age": age,
                 "Sex": payload["sex"],
@@ -159,10 +242,11 @@ def api_predict():
                 "Oldpeak": oldpeak,
                 "ST_Slope": payload["st_slope"],
             },
-            "predictions": {
-                "random_forest": {"label": pred_rf, "probability": prob_rf},
-                "xgboost": {"label": pred_xgb, "probability": prob_xgb},
-                "neural_net": {"label": pred_nn, "probability": prob_nn},
+            "predictions": predictions,
+            "risk_assessment": {
+                "category": risk_category,
+                "average_probability": float(avg_probability),
+                "model_agreement": float(model_agreement)
             }
         })
     except Exception as e:
@@ -326,6 +410,52 @@ def generate_feature_contribution(explainer, features, prediction):
     contributions.sort(key=lambda x: abs(x['contribution']), reverse=True)
     
     return contributions
+
+@app.route("/api/audit", methods=["GET"])
+def api_audit():
+    """Return audit trail analytics"""
+    try:
+        if not os.path.exists(AUDIT_LOG_FILE):
+            return jsonify({"ok": True, "audit_data": [], "summary": {}})
+        
+        # Read audit log
+        audit_entries = []
+        with open(AUDIT_LOG_FILE, 'r') as f:
+            for line in f:
+                if line.strip():
+                    audit_entries.append(json.loads(line.strip()))
+        
+        # Calculate summary statistics
+        total_predictions = len(audit_entries)
+        risk_categories = {}
+        avg_agreement = 0
+        
+        for entry in audit_entries:
+            category = entry.get('risk_category', 'Unknown')
+            risk_categories[category] = risk_categories.get(category, 0) + 1
+            avg_agreement += entry.get('model_agreement', 0)
+        
+        if total_predictions > 0:
+            avg_agreement /= total_predictions
+        
+        summary = {
+            "total_predictions": total_predictions,
+            "risk_distribution": risk_categories,
+            "average_model_agreement": round(avg_agreement, 3),
+            "date_range": {
+                "earliest": min([entry.get('timestamp', '') for entry in audit_entries]) if audit_entries else None,
+                "latest": max([entry.get('timestamp', '') for entry in audit_entries]) if audit_entries else None
+            }
+        }
+        
+        return jsonify({
+            "ok": True,
+            "audit_data": audit_entries[-10:],  # Last 10 entries
+            "summary": summary
+        })
+        
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 @app.route("/about")
 def about():

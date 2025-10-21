@@ -18,7 +18,250 @@ import {
   RadioGroup,
   Chip,
   Stack,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
 } from "@mui/material";
+import {
+  CheckCircle as CheckCircleIcon,
+  Warning as WarningIcon,
+  Error as ErrorIcon,
+  TrendingUp as TrendingUpIcon,
+} from "@mui/icons-material";
+
+// Risk Stratification Types and Utilities
+type RiskCategory = 'Low' | 'Moderate' | 'High';
+
+interface RiskAssessment {
+  level: RiskCategory;
+  color: 'success' | 'warning' | 'error';
+  recommendation: string;
+  icon: React.ReactNode;
+  description: string;
+}
+
+const getRiskCategory = (probability: number): RiskAssessment => {
+  if (probability < 0.3) {
+    return {
+      level: 'Low',
+      color: 'success',
+      recommendation: 'Continue routine monitoring',
+      icon: <CheckCircleIcon />,
+      description: 'Low risk of heart disease. Maintain healthy lifestyle and regular checkups.'
+    };
+  } else if (probability < 0.6) {
+    return {
+      level: 'Moderate',
+      color: 'warning',
+      recommendation: 'Consider additional testing',
+      icon: <WarningIcon />,
+      description: 'Moderate risk detected. Consider further evaluation and lifestyle modifications.'
+    };
+  } else {
+    return {
+      level: 'High',
+      color: 'error',
+      recommendation: 'Immediate clinical evaluation recommended',
+      icon: <ErrorIcon />,
+      description: 'High risk of heart disease. Urgent medical attention and comprehensive evaluation needed.'
+    };
+  }
+};
+
+
+
+// Clinical Guidelines
+const getClinicalGuidelines = (riskCategory: RiskCategory, features: PredictRequest): string[] => {
+  const baseGuidelines = {
+    'Low': [
+      'Continue routine primary care monitoring',
+      'Maintain healthy lifestyle (diet, exercise, no smoking)',
+      'Annual cardiovascular risk assessment',
+      'Monitor blood pressure and cholesterol regularly'
+    ],
+    'Moderate': [
+      'Schedule follow-up within 1-2 weeks',
+      'Consider ECG and basic cardiac workup',
+      'Discuss lifestyle modifications with patient',
+      'Review current medications and family history',
+      'Consider stress testing if symptoms persist'
+    ],
+    'High': [
+      'Refer to cardiologist within 24-48 hours',
+      'Consider immediate stress testing or cardiac catheterization',
+      'Review and optimize current medications',
+      'Implement aggressive lifestyle modifications',
+      'Consider admission for observation if symptoms severe',
+      'Discuss advanced imaging (CT angiography, MRI)'
+    ]
+  };
+
+  // Add specific guidelines based on patient features
+  const specificGuidelines: string[] = [];
+  
+  if (features.age > 65) {
+    specificGuidelines.push('Consider age-appropriate cardiac screening protocols');
+  }
+  
+  if (features.cholesterol > 240) {
+    specificGuidelines.push('Discuss lipid-lowering therapy options');
+  }
+  
+  if (features.max_hr < 100) {
+    specificGuidelines.push('Evaluate for potential cardiac dysfunction');
+  }
+  
+  if (features.chest_pain_type === 'TA') {
+    specificGuidelines.push('Classic angina pattern - high suspicion for CAD');
+  }
+  
+  if (features.exercise_angina === 'Y') {
+    specificGuidelines.push('Exercise-induced symptoms require immediate evaluation');
+  }
+
+  return [...baseGuidelines[riskCategory], ...specificGuidelines];
+};
+
+// Patient Report Generation
+interface PatientReport {
+  patientId: string;
+  timestamp: string;
+  riskAssessment: RiskAssessment;
+  predictions: PredictResponse['predictions'];
+  keyFindings: string[];
+  recommendations: string[];
+  modelAgreement: number;
+  nextSteps: string[];
+  patientData: PredictRequest;
+}
+
+const generatePatientId = (): string => {
+  return `PAT-${Date.now().toString(36).toUpperCase()}`;
+};
+
+const extractKeyFindings = (explanations: ExplainResponse | null): string[] => {
+  if (!explanations?.contributions) return [];
+  
+  const findings: string[] = [];
+  const rfContributions = explanations.contributions.random_forest;
+  
+  // Get top 3 contributing factors
+  const topFactors = rfContributions.slice(0, 3);
+  
+  topFactors.forEach(factor => {
+    const impact = factor.impact === 'Increases Risk' ? 'increases' : 'decreases';
+    findings.push(`${factor.feature} (${factor.value}) ${impact} heart disease risk`);
+  });
+  
+  return findings;
+};
+
+const generateNextSteps = (riskCategory: RiskCategory): string[] => {
+  const nextSteps = {
+    'Low': [
+      'Continue current lifestyle and monitoring',
+      'Schedule annual checkup',
+      'Maintain healthy diet and exercise routine'
+    ],
+    'Moderate': [
+      'Schedule follow-up appointment within 2 weeks',
+      'Consider additional cardiac testing',
+      'Implement recommended lifestyle changes',
+      'Monitor symptoms closely'
+    ],
+    'High': [
+      'Seek immediate medical attention',
+      'Contact cardiologist for urgent evaluation',
+      'Consider emergency department if symptoms worsen',
+      'Prepare for comprehensive cardiac workup'
+    ]
+  };
+  
+  return nextSteps[riskCategory];
+};
+
+const generatePatientReport = (
+  result: PredictResponse,
+  explanations: ExplainResponse | null,
+  form: PredictRequest
+): PatientReport => {
+  const avgRisk = result.risk_assessment?.average_probability || 0;
+  const riskAssessment = getRiskCategory(avgRisk);
+  
+  return {
+    patientId: generatePatientId(),
+    timestamp: new Date().toISOString(),
+    riskAssessment,
+    predictions: result.predictions!,
+    keyFindings: extractKeyFindings(explanations),
+    recommendations: getClinicalGuidelines(result.risk_assessment?.category || 'Low', form),
+    modelAgreement: result.risk_assessment?.model_agreement || 0,
+    nextSteps: generateNextSteps(result.risk_assessment?.category || 'Low'),
+    patientData: form
+  };
+};
+
+const exportPatientReport = (report: PatientReport) => {
+  const reportText = `
+HEART DISEASE RISK ASSESSMENT REPORT
+=====================================
+
+Patient ID: ${report.patientId}
+Assessment Date: ${new Date(report.timestamp).toLocaleString()}
+
+RISK ASSESSMENT
+---------------
+Risk Level: ${report.riskAssessment.level}
+Probability: ${(report.riskAssessment.level === 'Low' ? 0.2 : report.riskAssessment.level === 'Moderate' ? 0.45 : 0.7) * 100}%
+Recommendation: ${report.riskAssessment.recommendation}
+
+MODEL PREDICTIONS
+-----------------
+Random Forest: ${report.predictions ? (report.predictions.random_forest.probability * 100).toFixed(1) : 'N/A'}%
+XGBoost: ${report.predictions ? (report.predictions.xgboost.probability * 100).toFixed(1) : 'N/A'}%
+Neural Network: ${report.predictions ? (report.predictions.neural_net.probability * 100).toFixed(1) : 'N/A'}%
+Model Agreement: ${(report.modelAgreement * 100).toFixed(1)}%
+
+KEY FINDINGS
+------------
+${report.keyFindings.map(finding => `• ${finding}`).join('\n')}
+
+CLINICAL RECOMMENDATIONS
+------------------------
+${report.recommendations.map(rec => `• ${rec}`).join('\n')}
+
+NEXT STEPS
+----------
+${report.nextSteps.map(step => `• ${step}`).join('\n')}
+
+PATIENT DATA
+------------
+Age: ${report.patientData.age} years
+Sex: ${report.patientData.sex}
+Chest Pain Type: ${report.patientData.chest_pain_type}
+Cholesterol: ${report.patientData.cholesterol} mg/dL
+Fasting Blood Sugar: ${report.patientData.fasting_bs}
+Max Heart Rate: ${report.patientData.max_hr} bpm
+Exercise Angina: ${report.patientData.exercise_angina}
+Oldpeak: ${report.patientData.oldpeak}
+ST Slope: ${report.patientData.st_slope}
+
+---
+Generated by XAI Heart Disease Prediction System
+This report is for clinical decision support only.
+  `.trim();
+  
+  const blob = new Blob([reportText], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `heart-risk-report-${report.patientId}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 export default function PredictionForm() {
   const [form, setForm] = useState<PredictRequest>({
@@ -274,6 +517,166 @@ export default function PredictionForm() {
               </CardContent>
             </Card>
           </Box>
+
+          {/* Risk Stratification Section */}
+          {result?.predictions && (
+            <>
+              <Box sx={{ mb: 4 }}>
+                <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 3 }}>
+                  Risk Assessment
+                </Typography>
+                
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
+                  {/* Overall Risk Assessment */}
+                  <Card sx={{ 
+                    border: 2, 
+                    borderColor: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.main`,
+                    bgcolor: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.light`,
+                    color: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.dark`
+                  }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                        {getRiskCategory(result.risk_assessment?.average_probability || 0).icon}
+                        <Typography variant="h4" component="div" sx={{ ml: 1, fontWeight: 'bold' }}>
+                          {result.risk_assessment?.category || 'Unknown'} Risk
+                        </Typography>
+                      </Box>
+                      <Typography variant="h3" component="div" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        {((result.risk_assessment?.average_probability || 0) * 100).toFixed(1)}%
+                      </Typography>
+                      <Typography variant="body1" sx={{ mb: 2 }}>
+                        {getRiskCategory(result.risk_assessment?.average_probability || 0).description}
+                      </Typography>
+                      <Alert severity={getRiskCategory(result.risk_assessment?.average_probability || 0).color} sx={{ mt: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                          Recommendation: {getRiskCategory(result.risk_assessment?.average_probability || 0).recommendation}
+                        </Typography>
+                      </Alert>
+                    </CardContent>
+                  </Card>
+
+                  {/* Model Agreement Analysis */}
+                  <Card>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                        <TrendingUpIcon color="primary" />
+                        <Typography variant="h6" component="div" sx={{ ml: 1 }}>
+                          Model Agreement
+                        </Typography>
+                      </Box>
+                      <Typography variant="h3" component="div" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        {((result.risk_assessment?.model_agreement || 0) * 100).toFixed(1)}%
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        {(result.risk_assessment?.model_agreement || 0) > 0.8 
+                          ? 'High agreement between models - prediction is reliable'
+                          : 'Moderate agreement - consider additional validation'
+                        }
+                      </Typography>
+                      <Chip 
+                        label={(result.risk_assessment?.model_agreement || 0) > 0.8 ? 'High Confidence' : 'Moderate Confidence'}
+                        color={(result.risk_assessment?.model_agreement || 0) > 0.8 ? 'success' : 'warning'}
+                        size="small"
+                      />
+                    </CardContent>
+                  </Card>
+                </Box>
+              </Box>
+
+              {/* Clinical Guidelines Section */}
+              <Paper sx={{ p: 3, mb: 4 }}>
+                <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 3 }}>
+                  Clinical Recommendations
+                </Typography>
+                
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
+                  {/* Evidence-Based Guidelines */}
+                  <Box>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CheckCircleIcon color="primary" sx={{ mr: 1 }} />
+                      Evidence-Based Guidelines
+                    </Typography>
+                    <List dense>
+                      {getClinicalGuidelines(
+                        result.risk_assessment?.category || 'Low', 
+                        form
+                      ).map((guideline, index) => (
+                        <ListItem key={index} sx={{ py: 0.5 }}>
+                          <ListItemIcon sx={{ minWidth: 32 }}>
+                            <CheckCircleIcon color="primary" fontSize="small" />
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary={guideline}
+                            primaryTypographyProps={{ variant: 'body2' }}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Box>
+
+                  {/* Key Risk Factors */}
+                  <Box>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <WarningIcon color="warning" sx={{ mr: 1 }} />
+                      Key Risk Factors
+                    </Typography>
+                    <Stack spacing={1}>
+                      <Chip 
+                        label={`Age: ${form.age} years`}
+                        color={form.age > 65 ? 'error' : form.age > 50 ? 'warning' : 'success'}
+                        size="small"
+                      />
+                      <Chip 
+                        label={`Cholesterol: ${form.cholesterol} mg/dL`}
+                        color={form.cholesterol > 240 ? 'error' : form.cholesterol > 200 ? 'warning' : 'success'}
+                        size="small"
+                      />
+                      <Chip 
+                        label={`Max HR: ${form.max_hr} bpm`}
+                        color={form.max_hr < 100 ? 'error' : form.max_hr < 120 ? 'warning' : 'success'}
+                        size="small"
+                      />
+                      <Chip 
+                        label={`Chest Pain: ${form.chest_pain_type}`}
+                        color={form.chest_pain_type === 'TA' ? 'error' : form.chest_pain_type === 'ATA' ? 'warning' : 'success'}
+                        size="small"
+                      />
+                      <Chip 
+                        label={`Exercise Angina: ${form.exercise_angina}`}
+                        color={form.exercise_angina === 'Y' ? 'error' : 'success'}
+                        size="small"
+                      />
+                    </Stack>
+                  </Box>
+                </Box>
+              </Paper>
+
+              {/* Patient Report Export */}
+              <Box sx={{ mb: 4, textAlign: 'center' }}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={() => {
+                    if (result) {
+                      const report = generatePatientReport(result, explanations, form);
+                      exportPatientReport(report);
+                    }
+                  }}
+                  sx={{ 
+                    bgcolor: 'primary.main',
+                    '&:hover': { bgcolor: 'primary.dark' },
+                    px: 4,
+                    py: 1.5
+                  }}
+                >
+                  📄 Export Patient Report
+                </Button>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Download comprehensive assessment report for clinical records
+                </Typography>
+              </Box>
+            </>
+          )}
 
           {explanations?.ok && explanations.plots && (
             <Box sx={{ mt: 4 }}>

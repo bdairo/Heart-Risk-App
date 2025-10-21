@@ -13,11 +13,17 @@ export type PredictRequest = {
 export type PredictResponse = {
   ok: boolean;
   error?: string;
+  prediction_id?: string;
   features?: Record<string, unknown>;
   predictions?: {
     random_forest: { label: number; probability: number };
     xgboost: { label: number; probability: number };
     neural_net: { label: number; probability: number };
+  };
+  risk_assessment?: {
+    category: 'Low' | 'Moderate' | 'High';
+    average_probability: number;
+    model_agreement: number;
   };
 };
 
