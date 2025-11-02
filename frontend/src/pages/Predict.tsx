@@ -28,6 +28,7 @@ import {
   Warning as WarningIcon,
   Error as ErrorIcon,
   TrendingUp as TrendingUpIcon,
+  LocalHospital,
 } from "@mui/icons-material";
 
 // Risk Stratification Types and Utilities
@@ -320,11 +321,40 @@ export default function PredictionForm() {
 
   return (
     <Box>
-      <Typography variant="h4" component="h1" gutterBottom sx={{ mb: 3 }}>
-        Heart Disease Risk Prediction
-      </Typography>
+      {/* Hero Section */}
+      <Paper
+        elevation={0}
+        sx={{
+          background: 'linear-gradient(135deg, #E8F5E8 0%, #F1F8E9 100%)',
+          p: 4,
+          mb: 4,
+          borderRadius: 3,
+          border: '1px solid',
+          borderColor: 'primary.light',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+          <LocalHospital sx={{ fontSize: 40, color: 'primary.main' }} />
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 700, color: 'primary.main' }}>
+            Heart Disease Risk Assessment
+          </Typography>
+        </Box>
+        <Typography variant="h6" color="text.secondary" sx={{ maxWidth: '600px' }}>
+          Enter patient information below to receive comprehensive risk assessment with explainable AI insights and clinical recommendations.
+        </Typography>
+      </Paper>
       
-      <Paper elevation={3} sx={{ p: 4, mb: 4 }}>
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          p: 4, 
+          mb: 4,
+          borderRadius: 3,
+          border: '1px solid',
+          borderColor: 'divider',
+          background: 'linear-gradient(135deg, #FFFFFF 0%, #FAFAFA 100%)',
+        }}
+      >
         <form onSubmit={handleSubmit}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 3 }}>
             <TextField
@@ -441,8 +471,27 @@ export default function PredictionForm() {
               variant="contained" 
               disabled={loading}
               size="large"
+              sx={{
+                background: 'linear-gradient(45deg, #2E7D32 30%, #4CAF50 90%)',
+                px: 6,
+                py: 2,
+                fontSize: '1.1rem',
+                fontWeight: 600,
+                borderRadius: 3,
+                boxShadow: '0px 4px 12px rgba(46, 125, 50, 0.3)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #1B5E20 30%, #2E7D32 90%)',
+                  boxShadow: '0px 6px 16px rgba(46, 125, 50, 0.4)',
+                  transform: 'translateY(-1px)',
+                },
+                '&:disabled': {
+                  background: 'linear-gradient(45deg, #BDBDBD 30%, #E0E0E0 90%)',
+                  color: 'white',
+                },
+                transition: 'all 0.3s ease-in-out',
+              }}
             >
-              {loading ? "Predicting..." : "Predict"}
+              {loading ? "Analyzing..." : "🔍 Analyze Risk"}
             </Button>
             <Typography variant="body2" color="text.secondary">
               Predictions and explanations will appear below
@@ -463,57 +512,100 @@ export default function PredictionForm() {
 
       {result?.predictions && (
         <Box sx={{ mb: 4 }}>
-          <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 3 }}>
-            Predictions
+          <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
+            Model Predictions
           </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr' }, gap: 2 }}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="primary" gutterBottom>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr' }, gap: 3 }}>
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%)',
+              border: '1px solid',
+              borderColor: 'secondary.light',
+            }}>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Typography variant="h6" color="secondary.main" gutterBottom sx={{ fontWeight: 600 }}>
                   Random Forest
                 </Typography>
-                <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
+                <Typography variant="h3" component="div" sx={{ fontWeight: 700, color: 'secondary.dark', mb: 1 }}>
                   {(result.predictions.random_forest.probability * 100).toFixed(1)}%
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Label: {result.predictions.random_forest.label}
-                </Typography>
+                <Chip 
+                  label={result.predictions.random_forest.label === 1 ? 'High Risk' : 'Low Risk'}
+                  color={result.predictions.random_forest.label === 1 ? 'error' : 'success'}
+                  size="small"
+                />
               </CardContent>
             </Card>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="primary" gutterBottom>
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #E8F5E8 0%, #C8E6C9 100%)',
+              border: '1px solid',
+              borderColor: 'success.light',
+            }}>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Typography variant="h6" color="success.main" gutterBottom sx={{ fontWeight: 600 }}>
                   XGBoost
                 </Typography>
-                <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
+                <Typography variant="h3" component="div" sx={{ fontWeight: 700, color: 'success.dark', mb: 1 }}>
                   {(result.predictions.xgboost.probability * 100).toFixed(1)}%
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Label: {result.predictions.xgboost.label}
-                </Typography>
+                <Chip 
+                  label={result.predictions.xgboost.label === 1 ? 'High Risk' : 'Low Risk'}
+                  color={result.predictions.xgboost.label === 1 ? 'error' : 'success'}
+                  size="small"
+                />
               </CardContent>
             </Card>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="primary" gutterBottom>
-                  Neural Net
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%)',
+              border: '1px solid',
+              borderColor: 'warning.light',
+            }}>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Typography variant="h6" color="warning.main" gutterBottom sx={{ fontWeight: 600 }}>
+                  Neural Network
                 </Typography>
-                <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
+                <Typography variant="h3" component="div" sx={{ fontWeight: 700, color: 'warning.dark', mb: 1 }}>
                   {(result.predictions.neural_net.probability * 100).toFixed(1)}%
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Label: {result.predictions.neural_net.label}
-                </Typography>
+                <Chip 
+                  label={result.predictions.neural_net.label === 1 ? 'High Risk' : 'Low Risk'}
+                  color={result.predictions.neural_net.label === 1 ? 'error' : 'success'}
+                  size="small"
+                />
               </CardContent>
             </Card>
-            <Card sx={{ bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Aggregate (avg of 3)
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #2E7D32 0%, #4CAF50 100%)',
+              color: 'white',
+              position: 'relative',
+              overflow: 'hidden',
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                width: '100px',
+                height: '100px',
+                background: 'rgba(255,255,255,0.1)',
+                borderRadius: '50%',
+                transform: 'translate(30px, -30px)',
+              }
+            }}>
+              <CardContent sx={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, opacity: 0.9 }}>
+                  Ensemble Average
                 </Typography>
-                <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
+                <Typography variant="h3" component="div" sx={{ fontWeight: 700, mb: 1 }}>
                   {(((result.predictions.random_forest.probability + result.predictions.xgboost.probability + result.predictions.neural_net.probability) / 3) * 100).toFixed(1)}%
                 </Typography>
+                <Chip 
+                  label="Combined Prediction"
+                  sx={{ 
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    color: 'white',
+                    fontWeight: 500
+                  }}
+                  size="small"
+                />
               </CardContent>
             </Card>
           </Box>
@@ -522,33 +614,62 @@ export default function PredictionForm() {
           {result?.predictions && (
             <>
               <Box sx={{ mb: 4 }}>
-                <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 3 }}>
+                <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
                   Risk Assessment
                 </Typography>
                 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
                   {/* Overall Risk Assessment */}
                   <Card sx={{ 
-                    border: 2, 
+                    border: 3, 
                     borderColor: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.main`,
-                    bgcolor: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.light`,
-                    color: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.dark`
+                    background: `linear-gradient(135deg, ${getRiskCategory(result.risk_assessment?.average_probability || 0).color === 'success' ? '#E8F5E8' : getRiskCategory(result.risk_assessment?.average_probability || 0).color === 'warning' ? '#FFF8E1' : '#FFEBEE'} 0%, ${getRiskCategory(result.risk_assessment?.average_probability || 0).color === 'success' ? '#C8E6C9' : getRiskCategory(result.risk_assessment?.average_probability || 0).color === 'warning' ? '#FFE0B2' : '#FFCDD2'} 100%)`,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      top: 0,
+                      right: 0,
+                      width: '120px',
+                      height: '120px',
+                      background: `linear-gradient(45deg, ${getRiskCategory(result.risk_assessment?.average_probability || 0).color === 'success' ? 'rgba(76, 175, 80, 0.1)' : getRiskCategory(result.risk_assessment?.average_probability || 0).color === 'warning' ? 'rgba(255, 193, 7, 0.1)' : 'rgba(244, 67, 54, 0.1)'}, transparent)`,
+                      borderRadius: '50%',
+                      transform: 'translate(40px, -40px)',
+                    }
                   }}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        {getRiskCategory(result.risk_assessment?.average_probability || 0).icon}
-                        <Typography variant="h4" component="div" sx={{ ml: 1, fontWeight: 'bold' }}>
+                    <CardContent sx={{ position: 'relative', zIndex: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                        <Box sx={{ 
+                          p: 2, 
+                          borderRadius: '50%', 
+                          backgroundColor: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.main`,
+                          color: 'white',
+                          mr: 2
+                        }}>
+                          {getRiskCategory(result.risk_assessment?.average_probability || 0).icon}
+                        </Box>
+                        <Typography variant="h4" component="div" sx={{ fontWeight: 700, color: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.dark` }}>
                           {result.risk_assessment?.category || 'Unknown'} Risk
                         </Typography>
                       </Box>
-                      <Typography variant="h3" component="div" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      <Typography variant="h2" component="div" sx={{ fontWeight: 800, mb: 2, color: `${getRiskCategory(result.risk_assessment?.average_probability || 0).color}.dark` }}>
                         {((result.risk_assessment?.average_probability || 0) * 100).toFixed(1)}%
                       </Typography>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
+                      <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary', lineHeight: 1.6 }}>
                         {getRiskCategory(result.risk_assessment?.average_probability || 0).description}
                       </Typography>
-                      <Alert severity={getRiskCategory(result.risk_assessment?.average_probability || 0).color} sx={{ mt: 2 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      <Alert 
+                        severity={getRiskCategory(result.risk_assessment?.average_probability || 0).color} 
+                        sx={{ 
+                          mt: 2,
+                          borderRadius: 2,
+                          '& .MuiAlert-message': {
+                            fontWeight: 600
+                          }
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           Recommendation: {getRiskCategory(result.risk_assessment?.average_probability || 0).recommendation}
                         </Typography>
                       </Alert>
@@ -556,18 +677,30 @@ export default function PredictionForm() {
                   </Card>
 
                   {/* Model Agreement Analysis */}
-                  <Card>
+                  <Card sx={{
+                    background: 'linear-gradient(135deg, #F3E5F5 0%, #E1BEE7 100%)',
+                    border: '1px solid',
+                    borderColor: 'secondary.light',
+                  }}>
                     <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        <TrendingUpIcon color="primary" />
-                        <Typography variant="h6" component="div" sx={{ ml: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                        <Box sx={{ 
+                          p: 2, 
+                          borderRadius: '50%', 
+                          backgroundColor: 'secondary.main',
+                          color: 'white',
+                          mr: 2
+                        }}>
+                          <TrendingUpIcon />
+                        </Box>
+                        <Typography variant="h6" component="div" sx={{ fontWeight: 600, color: 'secondary.dark' }}>
                           Model Agreement
                         </Typography>
                       </Box>
-                      <Typography variant="h3" component="div" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      <Typography variant="h2" component="div" sx={{ fontWeight: 800, mb: 2, color: 'secondary.dark' }}>
                         {((result.risk_assessment?.model_agreement || 0) * 100).toFixed(1)}%
                       </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
                         {(result.risk_assessment?.model_agreement || 0) > 0.8 
                           ? 'High agreement between models - prediction is reliable'
                           : 'Moderate agreement - consider additional validation'
@@ -576,7 +709,8 @@ export default function PredictionForm() {
                       <Chip 
                         label={(result.risk_assessment?.model_agreement || 0) > 0.8 ? 'High Confidence' : 'Moderate Confidence'}
                         color={(result.risk_assessment?.model_agreement || 0) > 0.8 ? 'success' : 'warning'}
-                        size="small"
+                        size="medium"
+                        sx={{ fontWeight: 600 }}
                       />
                     </CardContent>
                   </Card>
@@ -584,8 +718,14 @@ export default function PredictionForm() {
               </Box>
 
               {/* Clinical Guidelines Section */}
-              <Paper sx={{ p: 3, mb: 4 }}>
-                <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 3 }}>
+              <Paper sx={{ 
+                p: 4, 
+                mb: 4,
+                background: 'linear-gradient(135deg, #F8F9FA 0%, #E3F2FD 100%)',
+                border: '1px solid',
+                borderColor: 'primary.light',
+              }}>
+                <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 4, fontWeight: 600, color: 'primary.dark' }}>
                   Clinical Recommendations
                 </Typography>
                 
@@ -663,16 +803,25 @@ export default function PredictionForm() {
                     }
                   }}
                   sx={{ 
-                    bgcolor: 'primary.main',
-                    '&:hover': { bgcolor: 'primary.dark' },
-                    px: 4,
-                    py: 1.5
+                    background: 'linear-gradient(45deg, #2E7D32 30%, #4CAF50 90%)',
+                    px: 6,
+                    py: 2,
+                    fontSize: '1.1rem',
+                    fontWeight: 600,
+                    borderRadius: 3,
+                    boxShadow: '0px 8px 24px rgba(46, 125, 50, 0.3)',
+                    '&:hover': {
+                      background: 'linear-gradient(45deg, #1B5E20 30%, #2E7D32 90%)',
+                      boxShadow: '0px 12px 32px rgba(46, 125, 50, 0.4)',
+                      transform: 'translateY(-2px)',
+                    },
+                    transition: 'all 0.3s ease-in-out',
                   }}
                 >
                   📄 Export Patient Report
                 </Button>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Download comprehensive assessment report for clinical records
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, maxWidth: '400px', mx: 'auto' }}>
+                  Download comprehensive assessment report for clinical records and quality assurance
                 </Typography>
               </Box>
             </>
