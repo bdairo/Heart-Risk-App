@@ -46,7 +46,7 @@ export default function Home() {
     }
   ];
 
-  return (
+    return (
     <Box>
       {/* Hero Section */}
       <Paper
@@ -228,6 +228,6 @@ export default function Home() {
         </Paper>
       </Container>
     </Box>
-  );
-}
+    );
+  }
   
