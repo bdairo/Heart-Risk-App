@@ -280,7 +280,7 @@ export default function PredictionForm() {
   const [result, setResult] = useState<PredictResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [explanations, setExplanations] = useState<ExplainResponse | null>(null);
-  const [modelForExplain, setModelForExplain] = useState<"rf" | "xgb">("rf");
+  const [modelForExplain, setModelForExplain] = useState<"rf" | "xgb" | "nn">("rf");
 
   function update<K extends keyof PredictRequest>(key: K, value: PredictRequest[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -344,6 +344,7 @@ export default function PredictionForm() {
         </Typography>
       </Paper>
       
+      {/* Form Section */}
       <Paper 
         elevation={0} 
         sx={{ 
@@ -838,10 +839,11 @@ export default function PredictionForm() {
                 <RadioGroup
                   row
                   value={modelForExplain}
-                  onChange={(e) => setModelForExplain(e.target.value as "rf" | "xgb")}
+                  onChange={(e) => setModelForExplain(e.target.value as "rf" | "xgb" | "nn")}
                 >
                   <FormControlLabel value="rf" control={<Radio />} label="Random Forest" />
                   <FormControlLabel value="xgb" control={<Radio />} label="XGBoost" />
+                  <FormControlLabel value="nn" control={<Radio />} label="Neural Network" />
                 </RadioGroup>
               </Box>
 
@@ -875,7 +877,7 @@ export default function PredictionForm() {
                       </CardContent>
                     </Card>
                   </>
-                ) : (
+                ) : modelForExplain === "xgb" ? (
                   <>
                     <Card>
                       <CardContent>
@@ -904,6 +906,38 @@ export default function PredictionForm() {
                       </CardContent>
                     </Card>
                   </>
+                ) : (
+                  <>
+                    <Card>
+                      <CardContent>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          SHAP Waterfall - Neural Network
+                        </Typography>
+                        {explanations.plots.shap_nn ? (
+                          <Box
+                            component="img"
+                            src={`data:image/png;base64,${explanations.plots.shap_nn}`}
+                            alt="SHAP NN"
+                            sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                          />
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Neural Network SHAP plot not available
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          Note
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Neural networks use SHAP explanations instead of feature importance, as they don't have built-in feature importance scores like tree-based models.
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </>
                 )}
               </Box>
 
@@ -914,18 +948,28 @@ export default function PredictionForm() {
                       Top Feature Contributions ({modelForExplain.toUpperCase()})
                     </Typography>
                     <Stack spacing={1}>
-                      {(modelForExplain === "rf" ? explanations.contributions.random_forest : explanations.contributions.xgboost).slice(0, 5).map((c, i) => (
-                        <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Typography variant="body2">
-                            {c.feature} = {c.value}
-                          </Typography>
-                          <Chip
-                            label={c.contribution.toFixed(3)}
-                            color={c.impact.includes("Increases") ? "error" : "success"}
-                            size="small"
-                          />
-                        </Box>
-                      ))}
+                      {(() => {
+                        let contributions = [];
+                        if (modelForExplain === "rf") {
+                          contributions = explanations.contributions.random_forest || [];
+                        } else if (modelForExplain === "xgb") {
+                          contributions = explanations.contributions.xgboost || [];
+                        } else {
+                          contributions = explanations.contributions.neural_net || [];
+                        }
+                        return contributions.slice(0, 5).map((c, i) => (
+                          <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Typography variant="body2">
+                              {c.feature} = {c.value}
+                            </Typography>
+                            <Chip
+                              label={c.contribution.toFixed(3)}
+                              color={c.impact.includes("Increases") ? "error" : "success"}
+                              size="small"
+                            />
+                          </Box>
+                        ));
+                      })()}
                     </Stack>
                   </CardContent>
                 </Card>

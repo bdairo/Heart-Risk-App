@@ -184,6 +184,38 @@ except Exception as e:
         print(f"Warning: Could not create XGBoost explainer: {e2}")
         explainer_xgb = None
 
+# Create Neural Network explainer
+try:
+    # Try DeepExplainer first (optimized for neural networks)
+    # Create background data for neural network
+    np.random.seed(42)
+    nn_background_data = np.zeros((50, 9))  # Smaller sample for faster computation
+    nn_background_data[:, 0] = np.random.uniform(20, 80, 50)  # Age: 20-80
+    nn_background_data[:, 1] = np.random.randint(0, 2, 50)  # Sex: 0-1
+    nn_background_data[:, 2] = np.random.randint(0, 4, 50)  # ChestPainType: 0-3
+    nn_background_data[:, 3] = np.random.uniform(100, 400, 50)  # Cholesterol: 100-400
+    nn_background_data[:, 4] = np.random.randint(0, 2, 50)  # FastingBS: 0-1
+    nn_background_data[:, 5] = np.random.uniform(60, 200, 50)  # MaxHR: 60-200
+    nn_background_data[:, 6] = np.random.randint(0, 2, 50)  # ExerciseAngina: 0-1
+    nn_background_data[:, 7] = np.random.uniform(0, 5, 50)  # Oldpeak: 0-5
+    nn_background_data[:, 8] = np.random.randint(0, 3, 50)  # ST_Slope: 0-2
+    
+    explainer_nn = shap.DeepExplainer(model_nn, nn_background_data)
+    print("✓ Successfully created Neural Network explainer using DeepExplainer")
+except Exception as e:
+    print(f"Warning: DeepExplainer failed for Neural Network: {e}")
+    try:
+        # Fallback to KernelExplainer
+        def nn_predict_wrapper(X):
+            """Wrapper function for Neural Network predict - returns positive class probabilities"""
+            return model_nn.predict(X, verbose=0)[:, 1]  # Return probability of positive class
+        
+        explainer_nn = shap.KernelExplainer(nn_predict_wrapper, nn_background_data)
+        print("✓ Successfully created Neural Network explainer using KernelExplainer (fallback)")
+    except Exception as e2:
+        print(f"Warning: Could not create Neural Network explainer: {e2}")
+        explainer_nn = None
+
 @app.route("/")
 def home():
     """Home page with input form"""
@@ -323,11 +355,13 @@ def api_explain():
         # print('shap_plot_rf', shap_plot_rf);
         shap_plot_xgb = generate_shap_plot(explainer_xgb, features, 'XGBoost') if explainer_xgb else None
         # print('shap_plot_xgb', shap_plot_xgb);
+        shap_plot_nn = generate_shap_plot(explainer_nn, features, 'Neural Network') if explainer_nn else None
         feature_importance_rf = generate_feature_importance(best_model, 'Random Forest')
         feature_importance_xgb = generate_feature_importance(best_xgb, 'XGBoost')
 
         feature_contrib_rf = generate_feature_contribution(explainer_rf, features, 1)
         feature_contrib_xgb = generate_feature_contribution(explainer_xgb, features, 1) if explainer_xgb else []
+        feature_contrib_nn = generate_feature_contribution(explainer_nn, features, 1) if explainer_nn else []
 
         return jsonify({
             "ok": True,
@@ -335,12 +369,14 @@ def api_explain():
             "plots": {
                 "shap_rf": shap_plot_rf,
                 "shap_xgb": shap_plot_xgb,
+                "shap_nn": shap_plot_nn,
                 "importance_rf": feature_importance_rf,
                 "importance_xgb": feature_importance_xgb
             },
             "contributions": {
                 "random_forest": feature_contrib_rf,
-                "xgboost": feature_contrib_xgb
+                "xgboost": feature_contrib_xgb,
+                "neural_net": feature_contrib_nn
             }
         })
     except Exception as e:
@@ -354,22 +390,36 @@ def generate_shap_plot(explainer, features, model_name):
     # print('model_name', model_name);
     if explainer is None:
         return None
-    shap_values = explainer.shap_values(features)
-    # print('shap_values', shap_values);
+    try:
+        shap_values = explainer.shap_values(features)
+        # print('shap_values', shap_values);
 
-    # For binary classification, use positive class
-    if isinstance(shap_values, list):
-        shap_values = shap_values[1]
-    
-    # Handle 3D array (samples, features, classes) - take first sample and positive class
-    if len(shap_values.shape) == 3:
-        shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
-    # Handle 2D array (samples, features) - flatten to 1D for single prediction
-    elif len(shap_values.shape) == 2:
-        shap_values = shap_values[0]  # Take first row (single prediction)
-    # Handle matrix of explanations - take the first row (single prediction)
-    elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
-        shap_values = shap_values[0]
+        # For binary classification, use positive class
+        if isinstance(shap_values, list):
+            # List of arrays (one per class) - take positive class (index 1)
+            shap_values = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+        
+        # Convert to numpy array if not already
+        if not isinstance(shap_values, np.ndarray):
+            shap_values = np.array(shap_values)
+        
+        # Handle 3D array (samples, features, classes) - take first sample and positive class
+        if len(shap_values.shape) == 3:
+            shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
+        # Handle 2D array (samples, features) - flatten to 1D for single prediction
+        elif len(shap_values.shape) == 2:
+            shap_values = shap_values[0]  # Take first row (single prediction)
+        # Handle matrix of explanations - take the first row (single prediction)
+        elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
+            shap_values = shap_values[0]
+        
+        # Ensure it's 1D
+        if len(shap_values.shape) > 1:
+            shap_values = shap_values.flatten()
+            
+    except Exception as e:
+        print(f"Error processing SHAP values for {model_name}: {e}")
+        return None
 
     # print(f"About to create SHAP plot for {model_name}")
     # print(f"shap_values shape: {shap_values.shape}")
@@ -379,13 +429,35 @@ def generate_shap_plot(explainer, features, model_name):
     # print(f"explainer.expected_value: {explainer.expected_value}")
     
     # Handle base_values for different explainer types
-    if isinstance(explainer.expected_value, np.ndarray):
-        if len(explainer.expected_value.shape) > 0 and explainer.expected_value.shape[0] > 1:
-            base_value = explainer.expected_value[1]  # Positive class for binary classification
+    try:
+        exp_val = explainer.expected_value
+        if isinstance(exp_val, np.ndarray):
+            # Handle numpy array - use .item() to extract scalar
+            if exp_val.ndim == 0:
+                # 0-dimensional array (scalar)
+                base_value = float(exp_val.item())
+            elif exp_val.ndim == 1:
+                # 1D array - for binary classification, take positive class if available
+                if len(exp_val) > 1:
+                    base_value = float(exp_val[1].item() if isinstance(exp_val[1], np.ndarray) else exp_val[1])
+                else:
+                    base_value = float(exp_val[0].item() if isinstance(exp_val[0], np.ndarray) else exp_val[0])
+            else:
+                # Multi-dimensional array - flatten and take first
+                base_value = float(exp_val.flatten()[0].item() if isinstance(exp_val.flatten()[0], np.ndarray) else exp_val.flatten()[0])
+        elif isinstance(exp_val, (list, tuple)):
+            # Handle list/tuple
+            if len(exp_val) > 1:
+                base_value = float(exp_val[1])
+            else:
+                base_value = float(exp_val[0])
         else:
-            base_value = float(explainer.expected_value[0]) if len(explainer.expected_value) > 0 else 0.5
-    else:
-        base_value = float(explainer.expected_value)
+            # Scalar value
+            base_value = float(exp_val)
+    except Exception as e:
+        # Fallback to default if anything goes wrong
+        print(f"Warning: Could not parse expected_value for {model_name}: {e}, using default 0.5")
+        base_value = 0.5
     
     plt.figure(figsize=(10, 6))
     shap.waterfall_plot(shap.Explanation(
@@ -433,21 +505,34 @@ def generate_feature_contribution(explainer, features, prediction):
     """Generate feature contribution table data"""
     if explainer is None:
         return []
-    shap_values = explainer.shap_values(features)
-    
-    # For binary classification, use positive class
-    if isinstance(shap_values, list):
-        shap_values = shap_values[1]
-    
-    # Handle 3D array (samples, features, classes) - take first sample and positive class
-    if len(shap_values.shape) == 3:
-        shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
-    # Handle 2D array (samples, features) - flatten to 1D for single prediction
-    elif len(shap_values.shape) == 2:
-        shap_values = shap_values[0]  # Take first row (single prediction)
-    # Handle matrix of explanations - take the first row (single prediction)
-    elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
-        shap_values = shap_values[0]
+    try:
+        shap_values = explainer.shap_values(features)
+        
+        # For binary classification, use positive class
+        if isinstance(shap_values, list):
+            # List of arrays (one per class) - take positive class (index 1)
+            shap_values = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+        
+        # Convert to numpy array if not already
+        if not isinstance(shap_values, np.ndarray):
+            shap_values = np.array(shap_values)
+        
+        # Handle 3D array (samples, features, classes) - take first sample and positive class
+        if len(shap_values.shape) == 3:
+            shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
+        # Handle 2D array (samples, features) - flatten to 1D for single prediction
+        elif len(shap_values.shape) == 2:
+            shap_values = shap_values[0]  # Take first row (single prediction)
+        # Handle matrix of explanations - take the first row (single prediction)
+        elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
+            shap_values = shap_values[0]
+        
+        # Ensure it's 1D
+        if len(shap_values.shape) > 1:
+            shap_values = shap_values.flatten()
+    except Exception as e:
+        print(f"Error processing SHAP values for feature contributions: {e}")
+        return []
     
     contributions = []
     for i, feature_name in enumerate(FEATURE_NAMES):

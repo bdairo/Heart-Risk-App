@@ -45,12 +45,14 @@ export type ExplainResponse = {
   plots?: {
     shap_rf: string; // base64 png
     shap_xgb: string; // base64 png
+    shap_nn?: string; // base64 png
     importance_rf: string; // base64 png
     importance_xgb: string; // base64 png
   };
   contributions?: {
     random_forest: Array<{ feature: string; value: number; contribution: number; impact: string }>;
     xgboost: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+    neural_net?: Array<{ feature: string; value: number; contribution: number; impact: string }>;
   };
 };
 
