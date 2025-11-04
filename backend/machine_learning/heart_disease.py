@@ -172,5 +172,6 @@ print("\nNN best score: {}".format(model_nn.evaluate(X_test, y_test)))
 
 joblib.dump(best_model, 'best_model.pkl')
 joblib.dump(best_xgb, 'best_xgb.pkl')
+best_xgb.get_booster().save_model('best_xgb.json')
 model_nn.save('model_nn.keras')
 print("\n------All models have been saved------")

@@ -15,13 +15,83 @@ import uuid
 from datetime import datetime
 import os
 
+import shap.explainers._tree as shap_tree
+import ast
+
+# Monkey patch TreeEnsemble to fix base_score before it reaches XGBTreeModelLoader
+original_tree_ensemble_init = shap_tree.TreeEnsemble.__init__
+
+def patched_tree_ensemble_init(self, model, data=None, data_missing=None, model_output=None):
+    """Patched TreeEnsemble that fixes XGBoost base_score issue"""
+    # For XGBoost models, fix the base_score in the model config
+    if hasattr(model, 'get_booster'):
+        try:
+            booster = model.get_booster()
+            config = booster.save_config()
+            config_dict = json.loads(config)
+            
+            # Fix base_score if it exists and is a string array
+            learner_params = config_dict.get("learner", {}).get("learner_train_param", {})
+            base_score = learner_params.get("base_score")
+            
+            if base_score is not None:
+                # Parse string array format like '[5.494744E-1]'
+                if isinstance(base_score, str):
+                    try:
+                        base_score = ast.literal_eval(base_score)
+                    except Exception:
+                        pass
+                if isinstance(base_score, (list, tuple, np.ndarray)):
+                    base_score = base_score[0]
+                # Update config with fixed base_score
+                config_dict["learner"]["learner_train_param"]["base_score"] = str(float(base_score))
+                booster.load_config(json.dumps(config_dict))
+        except Exception as e:
+            print(f"Warning: Could not fix XGBoost base_score: {e}")
+    
+    # Call original init
+    original_tree_ensemble_init(self, model, data, data_missing, model_output)
+
+shap_tree.TreeEnsemble.__init__ = patched_tree_ensemble_init
+
+
 app = Flask(__name__)
 CORS(app)
 
 # Load models and encoders
 # Use correct relative paths from backend/ directory
 best_model = joblib.load('machine_learning/models/best_model.pkl')  # Random Forest
-best_xgb = joblib.load('machine_learning/models/best_xgb.pkl')  # XGBoost
+# best_xgb = joblib.load('machine_learning/models/best_xgb.pkl')  # XGBoost
+import xgboost as xgb
+best_xgb = xgb.XGBClassifier()
+best_xgb.load_model('machine_learning/models/best_xgb.json')
+
+# Fix XGBoost base_score issue for SHAP compatibility
+try:
+    booster = best_xgb.get_booster()
+    config = booster.save_config()
+    config_dict = json.loads(config)
+    
+    # Fix base_score if it exists and is a string array
+    learner_params = config_dict.get("learner", {}).get("learner_train_param", {})
+    base_score = learner_params.get("base_score")
+    
+    if base_score is not None:
+        # Parse string array format like '[5.494744E-1]'
+        if isinstance(base_score, str):
+            try:
+                base_score = ast.literal_eval(base_score)
+            except Exception:
+                pass
+        if isinstance(base_score, (list, tuple, np.ndarray)):
+            base_score = base_score[0]
+        # Update config with fixed base_score
+        config_dict["learner"]["learner_train_param"]["base_score"] = str(float(base_score))
+        booster.load_config(json.dumps(config_dict))
+        print("✓ Fixed XGBoost base_score for SHAP compatibility")
+except Exception as e:
+    print(f"Warning: Could not fix XGBoost base_score: {e}")
+
 model_nn = load_model('machine_learning/models/model_nn.keras')  # Neural Network
 
 # Load encoders
@@ -79,11 +149,40 @@ def calculate_model_agreement(predictions):
 
 # Create SHAP explainers
 explainer_rf = shap.TreeExplainer(best_model)
+
+# For XGBoost, use KernelExplainer as fallback due to base_score compatibility issues
 try:
+    # Try TreeExplainer first (fastest for tree-based models)
     explainer_xgb = shap.TreeExplainer(best_xgb)
+    print("✓ Successfully created XGBoost explainer using TreeExplainer")
 except Exception as e:
-    print(f"Warning: Could not create XGBoost explainer: {e}")
-    explainer_xgb = None
+    print(f"Warning: TreeExplainer failed for XGBoost: {e}")
+    try:
+        # Fallback to KernelExplainer with wrapper function
+        # Create a callable wrapper for predict_proba
+        def xgb_predict_wrapper(X):
+            """Wrapper function for XGBoost predict_proba - returns positive class probabilities"""
+            return best_xgb.predict_proba(X)[:, 1]  # Return probability of positive class
+        
+        # Create background data (100 samples with reasonable feature ranges)
+        # This is used as a reference for SHAP calculations
+        np.random.seed(42)  # For reproducibility
+        background_data = np.zeros((100, 9))
+        background_data[:, 0] = np.random.uniform(20, 80, 100)  # Age: 20-80
+        background_data[:, 1] = np.random.randint(0, 2, 100)  # Sex: 0-1
+        background_data[:, 2] = np.random.randint(0, 4, 100)  # ChestPainType: 0-3
+        background_data[:, 3] = np.random.uniform(100, 400, 100)  # Cholesterol: 100-400
+        background_data[:, 4] = np.random.randint(0, 2, 100)  # FastingBS: 0-1
+        background_data[:, 5] = np.random.uniform(60, 200, 100)  # MaxHR: 60-200
+        background_data[:, 6] = np.random.randint(0, 2, 100)  # ExerciseAngina: 0-1
+        background_data[:, 7] = np.random.uniform(0, 5, 100)  # Oldpeak: 0-5
+        background_data[:, 8] = np.random.randint(0, 3, 100)  # ST_Slope: 0-2
+        
+        explainer_xgb = shap.KernelExplainer(xgb_predict_wrapper, background_data)
+        print("✓ Successfully created XGBoost explainer using KernelExplainer (fallback)")
+    except Exception as e2:
+        print(f"Warning: Could not create XGBoost explainer: {e2}")
+        explainer_xgb = None
 
 @app.route("/")
 def home():
@@ -265,6 +364,9 @@ def generate_shap_plot(explainer, features, model_name):
     # Handle 3D array (samples, features, classes) - take first sample and positive class
     if len(shap_values.shape) == 3:
         shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
+    # Handle 2D array (samples, features) - flatten to 1D for single prediction
+    elif len(shap_values.shape) == 2:
+        shap_values = shap_values[0]  # Take first row (single prediction)
     # Handle matrix of explanations - take the first row (single prediction)
     elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
         shap_values = shap_values[0]
@@ -276,10 +378,19 @@ def generate_shap_plot(explainer, features, model_name):
     # print(f"FEATURE_NAMES: {FEATURE_NAMES}")
     # print(f"explainer.expected_value: {explainer.expected_value}")
     
+    # Handle base_values for different explainer types
+    if isinstance(explainer.expected_value, np.ndarray):
+        if len(explainer.expected_value.shape) > 0 and explainer.expected_value.shape[0] > 1:
+            base_value = explainer.expected_value[1]  # Positive class for binary classification
+        else:
+            base_value = float(explainer.expected_value[0]) if len(explainer.expected_value) > 0 else 0.5
+    else:
+        base_value = float(explainer.expected_value)
+    
     plt.figure(figsize=(10, 6))
     shap.waterfall_plot(shap.Explanation(
         values=shap_values,
-        base_values=explainer.expected_value if not isinstance(explainer.expected_value, np.ndarray) else explainer.expected_value[1],
+        base_values=base_value,
         data=features[0],
         feature_names=FEATURE_NAMES
     ), max_display=9, show=False)
@@ -294,7 +405,7 @@ def generate_shap_plot(explainer, features, model_name):
     img_base64 = base64.b64encode(img_buffer.read()).decode()
     plt.close()
     
-    # print('returning img_base64', img_base64);
+    # print('returning img_base64', img_base64, 'for', model_name);
     return img_base64
 
 def generate_feature_importance(model, model_name):
@@ -331,6 +442,9 @@ def generate_feature_contribution(explainer, features, prediction):
     # Handle 3D array (samples, features, classes) - take first sample and positive class
     if len(shap_values.shape) == 3:
         shap_values = shap_values[0, :, 1]  # First sample, all features, positive class
+    # Handle 2D array (samples, features) - flatten to 1D for single prediction
+    elif len(shap_values.shape) == 2:
+        shap_values = shap_values[0]  # Take first row (single prediction)
     # Handle matrix of explanations - take the first row (single prediction)
     elif len(shap_values.shape) > 1 and shap_values.shape[0] > 1:
         shap_values = shap_values[0]
