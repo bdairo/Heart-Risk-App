@@ -46,13 +46,25 @@ export type ExplainResponse = {
     shap_rf: string; // base64 png
     shap_xgb: string; // base64 png
     shap_nn?: string; // base64 png
+    lime_rf?: string; // base64 png
+    lime_xgb?: string; // base64 png
+    lime_nn?: string; // base64 png
     importance_rf: string; // base64 png
     importance_xgb: string; // base64 png
   };
   contributions?: {
-    random_forest: Array<{ feature: string; value: number; contribution: number; impact: string }>;
-    xgboost: Array<{ feature: string; value: number; contribution: number; impact: string }>;
-    neural_net?: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+    random_forest: {
+      shap: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+      lime: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+    };
+    xgboost: {
+      shap: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+      lime: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+    };
+    neural_net?: {
+      shap: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+      lime: Array<{ feature: string; value: number; contribution: number; impact: string }>;
+    };
   };
 };
 

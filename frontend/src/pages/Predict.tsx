@@ -22,6 +22,8 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import {
   CheckCircle as CheckCircleIcon,
@@ -147,10 +149,10 @@ const extractKeyFindings = (explanations: ExplainResponse | null): string[] => {
   const findings: string[] = [];
   const rfContributions = explanations.contributions.random_forest;
   
-  // Get top 3 contributing factors
-  const topFactors = rfContributions.slice(0, 3);
+  // Get top 3 contributing factors from SHAP (preferred) or LIME
+  const topFactors = (rfContributions?.shap || rfContributions?.lime || []).slice(0, 3);
   
-  topFactors.forEach(factor => {
+  topFactors.forEach((factor: { feature: string; value: number; impact: string }) => {
     const impact = factor.impact === 'Increases Risk' ? 'increases' : 'decreases';
     findings.push(`${factor.feature} (${factor.value}) ${impact} heart disease risk`);
   });
@@ -281,6 +283,7 @@ export default function PredictionForm() {
   const [error, setError] = useState<string | null>(null);
   const [explanations, setExplanations] = useState<ExplainResponse | null>(null);
   const [modelForExplain, setModelForExplain] = useState<"rf" | "xgb" | "nn">("rf");
+  const [explanationMethod, setExplanationMethod] = useState<"shap" | "lime">("shap");
 
   function update<K extends keyof PredictRequest>(key: K, value: PredictRequest[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -831,11 +834,11 @@ export default function PredictionForm() {
           {explanations?.ok && explanations.plots && (
             <Box sx={{ mt: 4 }}>
               <Typography variant="h5" component="h3" gutterBottom sx={{ mb: 3 }}>
-                Explain
+                Explainability Analysis
               </Typography>
               
               <Box sx={{ mb: 3 }}>
-                <Typography variant="body1" sx={{ mb: 1 }}>Model:</Typography>
+                <Typography variant="body1" sx={{ mb: 2 }}>Model:</Typography>
                 <RadioGroup
                   row
                   value={modelForExplain}
@@ -847,97 +850,216 @@ export default function PredictionForm() {
                 </RadioGroup>
               </Box>
 
+              <Box sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs 
+                  value={explanationMethod} 
+                  onChange={(_e, v) => setExplanationMethod(v)}
+                  aria-label="explanation method tabs"
+                >
+                  <Tab label="SHAP" value="shap" />
+                  <Tab label="LIME" value="lime" />
+                </Tabs>
+              </Box>
+
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-                {modelForExplain === "rf" ? (
-                  <>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          SHAP Waterfall - Random Forest
-                        </Typography>
-                        <Box
-                          component="img"
-                          src={`data:image/png;base64,${explanations.plots.shap_rf}`}
-                          alt="SHAP RF"
-                          sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
-                        />
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          Feature Importance - Random Forest
-                        </Typography>
-                        <Box
-                          component="img"
-                          src={`data:image/png;base64,${explanations.plots.importance_rf}`}
-                          alt="FI RF"
-                          sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
-                        />
-                      </CardContent>
-                    </Card>
-                  </>
-                ) : modelForExplain === "xgb" ? (
-                  <>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          SHAP Waterfall - XGBoost
-                        </Typography>
-                        <Box
-                          component="img"
-                          src={`data:image/png;base64,${explanations.plots.shap_xgb}`}
-                          alt="SHAP XGB"
-                          sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
-                        />
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          Feature Importance - XGBoost
-                        </Typography>
-                        <Box
-                          component="img"
-                          src={`data:image/png;base64,${explanations.plots.importance_xgb}`}
-                          alt="FI XGB"
-                          sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
-                        />
-                      </CardContent>
-                    </Card>
-                  </>
-                ) : (
-                  <>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          SHAP Waterfall - Neural Network
-                        </Typography>
-                        {explanations.plots.shap_nn ? (
+                {explanationMethod === "shap" ? (
+                  // SHAP plots
+                  modelForExplain === "rf" ? (
+                    <>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            SHAP Waterfall - Random Forest
+                          </Typography>
                           <Box
                             component="img"
-                            src={`data:image/png;base64,${explanations.plots.shap_nn}`}
-                            alt="SHAP NN"
+                            src={`data:image/png;base64,${explanations.plots.shap_rf}`}
+                            alt="SHAP RF"
                             sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
                           />
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            Neural Network SHAP plot not available
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Feature Importance - Random Forest
                           </Typography>
-                        )}
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          Note
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Neural networks use SHAP explanations instead of feature importance, as they don't have built-in feature importance scores like tree-based models.
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </>
+                          <Box
+                            component="img"
+                            src={`data:image/png;base64,${explanations.plots.importance_rf}`}
+                            alt="FI RF"
+                            sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                          />
+                        </CardContent>
+                      </Card>
+                    </>
+                  ) : modelForExplain === "xgb" ? (
+                    <>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            SHAP Waterfall - XGBoost
+                          </Typography>
+                          <Box
+                            component="img"
+                            src={`data:image/png;base64,${explanations.plots.shap_xgb}`}
+                            alt="SHAP XGB"
+                            sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                          />
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Feature Importance - XGBoost
+                          </Typography>
+                          <Box
+                            component="img"
+                            src={`data:image/png;base64,${explanations.plots.importance_xgb}`}
+                            alt="FI XGB"
+                            sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                          />
+                        </CardContent>
+                      </Card>
+                    </>
+                  ) : (
+                    <>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            SHAP Waterfall - Neural Network
+                          </Typography>
+                          {explanations.plots.shap_nn ? (
+                            <Box
+                              component="img"
+                              src={`data:image/png;base64,${explanations.plots.shap_nn}`}
+                              alt="SHAP NN"
+                              sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Neural Network SHAP plot not available
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Note
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Neural networks use SHAP explanations instead of feature importance, as they don't have built-in feature importance scores like tree-based models.
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </>
+                  )
+                ) : (
+                  // LIME plots
+                  modelForExplain === "rf" ? (
+                    <>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            LIME Explanation - Random Forest
+                          </Typography>
+                          {explanations.plots.lime_rf ? (
+                            <Box
+                              component="img"
+                              src={`data:image/png;base64,${explanations.plots.lime_rf}`}
+                              alt="LIME RF"
+                              sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              LIME explanation not available
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Feature Importance - Random Forest
+                          </Typography>
+                          <Box
+                            component="img"
+                            src={`data:image/png;base64,${explanations.plots.importance_rf}`}
+                            alt="FI RF"
+                            sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                          />
+                        </CardContent>
+                      </Card>
+                    </>
+                  ) : modelForExplain === "xgb" ? (
+                    <>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            LIME Explanation - XGBoost
+                          </Typography>
+                          {explanations.plots.lime_xgb ? (
+                            <Box
+                              component="img"
+                              src={`data:image/png;base64,${explanations.plots.lime_xgb}`}
+                              alt="LIME XGB"
+                              sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              LIME explanation not available
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Feature Importance - XGBoost
+                          </Typography>
+                          <Box
+                            component="img"
+                            src={`data:image/png;base64,${explanations.plots.importance_xgb}`}
+                            alt="FI XGB"
+                            sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                          />
+                        </CardContent>
+                      </Card>
+                    </>
+                  ) : (
+                    <>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            LIME Explanation - Neural Network
+                          </Typography>
+                          {explanations.plots.lime_nn ? (
+                            <Box
+                              component="img"
+                              src={`data:image/png;base64,${explanations.plots.lime_nn}`}
+                              alt="LIME NN"
+                              sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              LIME explanation not available
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Note
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            LIME provides local explanations by training a simple interpretable model around the prediction. This complements SHAP explanations for comprehensive model interpretability.
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </>
+                  )
                 )}
               </Box>
 
@@ -945,30 +1067,45 @@ export default function PredictionForm() {
                 <Card sx={{ mt: 3 }}>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
-                      Top Feature Contributions ({modelForExplain.toUpperCase()})
+                      Top Feature Contributions ({modelForExplain.toUpperCase()} - {explanationMethod.toUpperCase()})
                     </Typography>
                     <Stack spacing={1}>
                       {(() => {
                         let contributions = [];
                         if (modelForExplain === "rf") {
-                          contributions = explanations.contributions.random_forest || [];
+                          const modelContribs = explanations.contributions.random_forest;
+                          contributions = explanationMethod === "shap" 
+                            ? (modelContribs?.shap || [])
+                            : (modelContribs?.lime || []);
                         } else if (modelForExplain === "xgb") {
-                          contributions = explanations.contributions.xgboost || [];
+                          const modelContribs = explanations.contributions.xgboost;
+                          contributions = explanationMethod === "shap"
+                            ? (modelContribs?.shap || [])
+                            : (modelContribs?.lime || []);
                         } else {
-                          contributions = explanations.contributions.neural_net || [];
+                          const modelContribs = explanations.contributions.neural_net;
+                          contributions = explanationMethod === "shap"
+                            ? (modelContribs?.shap || [])
+                            : (modelContribs?.lime || []);
                         }
-                        return contributions.slice(0, 5).map((c, i) => (
-                          <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography variant="body2">
-                              {c.feature} = {c.value}
-                            </Typography>
-                            <Chip
-                              label={c.contribution.toFixed(3)}
-                              color={c.impact.includes("Increases") ? "error" : "success"}
-                              size="small"
-                            />
-                          </Box>
-                        ));
+                        return contributions.length > 0 ? (
+                          contributions.slice(0, 5).map((c, i) => (
+                            <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Typography variant="body2">
+                                {c.feature} = {c.value}
+                              </Typography>
+                              <Chip
+                                label={c.contribution.toFixed(3)}
+                                color={c.impact.includes("Increases") ? "error" : "success"}
+                                size="small"
+                              />
+                            </Box>
+                          ))
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            No {explanationMethod.toUpperCase()} contributions available for this model
+                          </Typography>
+                        );
                       })()}
                     </Stack>
                   </CardContent>
