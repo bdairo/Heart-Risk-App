@@ -102,6 +102,14 @@ slope_encoder = joblib.load('machine_learning/encoders/slope_encoder.pkl')
 # Feature names (after dropping RestingBP and RestingECG)
 FEATURE_NAMES = ['Age', 'Sex', 'ChestPainType', 'Cholesterol', 'FastingBS', 
                  'MaxHR', 'ExerciseAngina', 'Oldpeak', 'ST_Slope']
+FEATURE_INDEX_MAP = {name: idx for idx, name in enumerate(FEATURE_NAMES)}
+CATEGORICAL_FEATURES = {'Sex', 'ChestPainType', 'FastingBS', 'ExerciseAngina', 'ST_Slope'}
+PDP_BACKGROUND_DATA = None
+FEATURE_VALUE_STATS = {}
+FASTING_BS_LABELS = {
+    0: 'Normal (<120 mg/dL)',
+    1: 'High (>=120 mg/dL)'
+}
 
 # Audit logging
 AUDIT_LOG_FILE = 'audit_log.jsonl'
@@ -222,6 +230,15 @@ try:
         mode='classification',
         random_state=42
     )
+    PDP_BACKGROUND_DATA = lime_background_data.copy()
+    FEATURE_VALUE_STATS = {
+        feature: {
+            'min': float(lime_background_data[:, idx].min()),
+            'max': float(lime_background_data[:, idx].max()),
+            'unique': sorted(list(set(lime_background_data[:, idx].tolist())))
+        }
+        for idx, feature in enumerate(FEATURE_NAMES)
+    }
     print("✓ Successfully created LIME explainers for all models using heart.csv background data")
 except Exception as e:
     print(f"Warning: Could not create LIME explainers from heart.csv: {e}")
@@ -263,6 +280,15 @@ except Exception as e:
             random_state=42
         )
         print("✓ Successfully created LIME explainers using synthetic fallback data")
+        PDP_BACKGROUND_DATA = lime_background_data.copy()
+        FEATURE_VALUE_STATS = {
+            feature: {
+                'min': float(lime_background_data[:, idx].min()),
+                'max': float(lime_background_data[:, idx].max()),
+                'unique': sorted(list(set(lime_background_data[:, idx].tolist())))
+            }
+            for idx, feature in enumerate(FEATURE_NAMES)
+        }
     except Exception as fallback_error:
         print(f"Warning: Could not create LIME explainers even with fallback data: {fallback_error}")
         lime_explainer_rf = None
@@ -431,6 +457,136 @@ def generate_feature_importance(model, model_name):
     plt.close()
     
     return img_base64
+
+def generate_contribution_importance_plot(contributions, model_name, method_label='SHAP', top_n=9, bar_color='indianred'):
+    """Generate feature importance plot from contribution data (SHAP/LIME)"""
+    if not contributions:
+        return None
+    
+    try:
+        top_features = contributions[:top_n]
+        feature_labels = [item['feature'] for item in top_features]
+        importance_values = [abs(item['contribution']) for item in top_features]
+    except (KeyError, TypeError) as e:
+        print(f"Error preparing SHAP importance data for {model_name}: {e}")
+        return None
+    
+    try:
+        plt.figure(figsize=(10, 6))
+        bars = plt.bar(range(len(feature_labels)), importance_values, color=bar_color)
+        plt.xticks(range(len(feature_labels)), feature_labels, rotation=45, ha='right')
+        plt.ylabel('Absolute Contribution', fontsize=12, fontweight='bold')
+        plt.title(f'{method_label} Feature Importance - {model_name}', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        for bar, value in zip(bars, importance_values):
+            plt.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                f'{value:.3f}',
+                ha='center',
+                va='bottom',
+                fontsize=9
+            )
+        
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=100, bbox_inches='tight')
+        img_buffer.seek(0)
+        img_base64 = base64.b64encode(img_buffer.read()).decode()
+        plt.close()
+        return img_base64
+    except Exception as e:
+        print(f"Error generating {method_label} importance plot for {model_name}: {e}")
+        plt.close()
+        return None
+
+def get_prediction_function(model_key):
+    """Return a callable that outputs positive class probabilities for the specified model."""
+    if model_key == 'rf':
+        return lambda X: best_model.predict_proba(X)[:, 1]
+    if model_key == 'xgb':
+        return lambda X: best_xgb.predict_proba(X)[:, 1]
+    if model_key == 'nn':
+        return lambda X: model_nn.predict(X, verbose=0)[:, 1]
+    raise ValueError(f"Unsupported model key: {model_key}")
+
+def format_feature_value(feature_name, value):
+    """Convert encoded feature values back to human-readable labels where possible."""
+    rounded_value = int(round(value))
+    if feature_name == 'Sex':
+        try:
+            return sex_encoder.inverse_transform([rounded_value])[0]
+        except Exception:
+            return str(rounded_value)
+    if feature_name == 'ChestPainType':
+        try:
+            return chestpain_encoder.inverse_transform([rounded_value])[0]
+        except Exception:
+            return str(rounded_value)
+    if feature_name == 'ExerciseAngina':
+        try:
+            return exercise_encoder.inverse_transform([rounded_value])[0]
+        except Exception:
+            return str(rounded_value)
+    if feature_name == 'ST_Slope':
+        try:
+            return slope_encoder.inverse_transform([rounded_value])[0]
+        except Exception:
+            return str(rounded_value)
+    if feature_name == 'FastingBS':
+        return FASTING_BS_LABELS.get(rounded_value, str(rounded_value))
+    try:
+        return f"{float(value):.2f}"
+    except Exception:
+        return str(value)
+
+def build_feature_grid(feature_name, grid_resolution=25):
+    """Create grid values for PDP/ICE depending on feature type."""
+    if feature_name not in FEATURE_VALUE_STATS:
+        raise ValueError(f"No statistics available for feature {feature_name}")
+    stats = FEATURE_VALUE_STATS[feature_name]
+    if feature_name in CATEGORICAL_FEATURES:
+        return stats['unique']
+    min_val = stats['min']
+    max_val = stats['max']
+    if min_val == max_val:
+        return [min_val]
+    return np.linspace(min_val, max_val, grid_resolution).tolist()
+
+def generate_pdp_ice_data(model_key, feature_name, grid_resolution=25, ice_count=20):
+    """Generate Partial Dependence and ICE data for the given model and feature."""
+    if PDP_BACKGROUND_DATA is None:
+        raise ValueError("No background data available for PDP/ICE generation.")
+    if feature_name not in FEATURE_INDEX_MAP:
+        raise ValueError(f"Unsupported feature: {feature_name}")
+    feature_idx = FEATURE_INDEX_MAP[feature_name]
+    grid_values = build_feature_grid(feature_name, grid_resolution)
+    predictor = get_prediction_function(model_key)
+    sample_count = min(ice_count, PDP_BACKGROUND_DATA.shape[0])
+    if sample_count <= 0:
+        raise ValueError("Insufficient background data for PDP/ICE generation.")
+    sample_indices = np.random.choice(PDP_BACKGROUND_DATA.shape[0], sample_count, replace=False)
+    baseline_samples = PDP_BACKGROUND_DATA[sample_indices]
+    ice_curves = []
+    for sample in baseline_samples:
+        curve = []
+        for grid_val in grid_values:
+            perturbed = sample.copy()
+            perturbed[feature_idx] = grid_val
+            prob = predictor(np.array([perturbed], dtype=float))[0]
+            curve.append(float(prob))
+        ice_curves.append(curve)
+    pdp_curve = np.mean(np.array(ice_curves), axis=0).tolist()
+    grid_labels = [format_feature_value(feature_name, val) for val in grid_values]
+    return {
+        "feature": feature_name,
+        "model": model_key,
+        "feature_type": "categorical" if feature_name in CATEGORICAL_FEATURES else "numeric",
+        "grid": [float(val) for val in grid_values],
+        "grid_labels": grid_labels,
+        "pdp": pdp_curve,
+        "ice": ice_curves
+    }
 
 def generate_feature_contribution(explainer, features, prediction):
     """Generate feature contribution table data"""
@@ -791,6 +947,8 @@ def api_explain():
         feature_contrib_rf = generate_feature_contribution(explainer_rf, features, 1)
         feature_contrib_xgb = generate_feature_contribution(explainer_xgb, features, 1) if explainer_xgb else []
         feature_contrib_nn = generate_feature_contribution(explainer_nn, features, 1) if explainer_nn else []
+        shap_importance_nn = generate_contribution_importance_plot(feature_contrib_nn, 'Neural Network', method_label='SHAP', bar_color='indianred') if feature_contrib_nn else None
+        lime_contrib_nn = []
 
         # Generate LIME explanations
         print("Starting LIME explanation generation...")
@@ -815,8 +973,10 @@ def api_explain():
             try:
                 lime_explanation_nn = generate_lime_explanation(lime_explainer_nn, model_nn, features, 'Neural Network')
                 print(f"LIME NN result: {'Success' if lime_explanation_nn else 'Failed'}")
+                lime_contrib_nn = lime_explanation_nn['contributions'] if lime_explanation_nn and 'contributions' in lime_explanation_nn else []
             except Exception as e:
                 print(f"Error generating LIME for NN: {e}")
+        lime_importance_nn = generate_contribution_importance_plot(lime_contrib_nn, 'Neural Network', method_label='LIME', bar_color='seagreen') if lime_contrib_nn else None
 
         return jsonify({
             "ok": True,
@@ -829,7 +989,9 @@ def api_explain():
                 "lime_xgb": lime_explanation_xgb['plot'] if lime_explanation_xgb else None,
                 "lime_nn": lime_explanation_nn['plot'] if lime_explanation_nn else None,
                 "importance_rf": feature_importance_rf,
-                "importance_xgb": feature_importance_xgb
+                "importance_xgb": feature_importance_xgb,
+                "importance_nn": shap_importance_nn,
+                "importance_nn_lime": lime_importance_nn
             },
             "contributions": {
                 "random_forest": {
@@ -845,6 +1007,29 @@ def api_explain():
                     "lime": lime_explanation_nn['contributions'] if lime_explanation_nn else []
                 }
             }
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+@app.route("/api/pdp", methods=["POST"])
+def api_pdp():
+    """Return Partial Dependence and ICE data for the requested feature/model."""
+    try:
+        payload = request.get_json(force=True)
+        feature = payload.get("feature")
+        model_key = payload.get("model", "rf")
+        grid_resolution = int(payload.get("grid_resolution", 25))
+        ice_count = int(payload.get("ice_count", 20))
+        
+        if feature not in FEATURE_NAMES:
+            return jsonify({"ok": False, "error": f"Unsupported feature '{feature}'"}), 400
+        if model_key not in {"rf", "xgb", "nn"}:
+            return jsonify({"ok": False, "error": f"Unsupported model '{model_key}'"}), 400
+        
+        pdp_payload = generate_pdp_ice_data(model_key, feature, grid_resolution, ice_count)
+        return jsonify({
+            "ok": True,
+            **pdp_payload
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400

@@ -51,6 +51,8 @@ export type ExplainResponse = {
     lime_nn?: string; // base64 png
     importance_rf: string; // base64 png
     importance_xgb: string; // base64 png
+    importance_nn?: string; // base64 png
+    importance_nn_lime?: string; // base64 png
   };
   contributions?: {
     random_forest: {
@@ -68,11 +70,32 @@ export type ExplainResponse = {
   };
 };
 
+export type PdpIceResponse = {
+  ok: boolean;
+  error?: string;
+  feature?: string;
+  model?: "rf" | "xgb" | "nn";
+  feature_type?: "numeric" | "categorical";
+  grid?: number[];
+  grid_labels?: string[];
+  pdp?: number[];
+  ice?: number[][];
+};
+
 export async function explain(req: PredictRequest): Promise<ExplainResponse> {
   const res = await fetch(`${API_BASE}/api/explain`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
+  });
+  return res.json();
+}
+
+export async function fetchPdp(body: { feature: string; model: "rf" | "xgb" | "nn"; grid_resolution?: number; ice_count?: number; }): Promise<PdpIceResponse> {
+  const res = await fetch(`${API_BASE}/api/pdp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
   return res.json();
 }

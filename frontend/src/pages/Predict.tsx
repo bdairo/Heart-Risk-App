@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { predict, explain, type PredictRequest, type PredictResponse, type ExplainResponse } from "../services/api";
+import { useEffect, useState } from "react";
+import { predict, explain, fetchPdp, type PredictRequest, type PredictResponse, type ExplainResponse, type PdpIceResponse } from "../services/api";
 import {
   Box,
   Paper,
@@ -24,6 +24,7 @@ import {
   ListItemText,
   Tabs,
   Tab,
+  CircularProgress,
 } from "@mui/material";
 import {
   CheckCircle as CheckCircleIcon,
@@ -266,6 +267,211 @@ This report is for clinical decision support only.
   URL.revokeObjectURL(url);
 };
 
+const MODEL_LABELS: Record<"rf" | "xgb" | "nn", string> = {
+  rf: "Random Forest",
+  xgb: "XGBoost",
+  nn: "Neural Network"
+};
+
+const DEFAULT_FEATURE_OPTIONS: string[] = ['Age', 'Sex', 'ChestPainType', 'Cholesterol', 'FastingBS', 'MaxHR', 'ExerciseAngina', 'Oldpeak', 'ST_Slope'];
+const PDP_CATEGORICAL = new Set(['Sex', 'ChestPainType', 'FastingBS', 'ExerciseAngina', 'ST_Slope']);
+
+type PdpChartPayload = {
+  grid: number[];
+  grid_labels: string[];
+  pdp: number[];
+  ice: number[][];
+  feature: string;
+  feature_type: "numeric" | "categorical";
+  model: "rf" | "xgb" | "nn";
+};
+
+const hasPdpPayload = (payload: PdpIceResponse | null): payload is PdpIceResponse & PdpChartPayload => {
+  return Boolean(
+    payload &&
+    payload.grid &&
+    payload.grid_labels &&
+    payload.pdp &&
+    payload.ice &&
+    payload.feature &&
+    payload.feature_type &&
+    payload.model
+  );
+};
+
+const PdpIceChart = ({ data }: { data: PdpChartPayload }) => {
+  const width = 900;
+  const height = 500;
+  const leftPadding = 70;
+  const rightPadding = 48;
+  const topPadding = 48;
+  const bottomPadding = 60;
+  const plotWidth = width - leftPadding - rightPadding;
+  const plotHeight = height - topPadding - bottomPadding;
+  const flatIce = data.ice.flat();
+  const yValues = [...data.pdp, ...flatIce];
+  const minY = Math.min(0, ...yValues);
+  const maxY = Math.max(1, ...yValues);
+  const yRange = maxY - minY || 1;
+  const gridMin = Math.min(...data.grid);
+  const gridMax = Math.max(...data.grid);
+  const gridRange = gridMax - gridMin || 1;
+  const maxIceLines = Math.min(data.ice.length, 12);
+
+  // Generate y-axis ticks
+  const numYTicks = 6;
+  const yTicks = Array.from({ length: numYTicks }, (_, i) => {
+    const value = minY + (yRange * i) / (numYTicks - 1);
+    return {
+      value: value,
+      label: value.toFixed(2),
+      y: height - bottomPadding - (plotHeight * i) / (numYTicks - 1)
+    };
+  });
+
+  const getXCoord = (value: number, index: number) => {
+    if (data.feature_type === "categorical") {
+      const denom = data.grid.length > 1 ? data.grid.length - 1 : 1;
+      return leftPadding + (index / denom) * plotWidth;
+    }
+    const ratio = gridRange === 0 ? 0.5 : (value - gridMin) / gridRange;
+    return leftPadding + ratio * plotWidth;
+  };
+
+  const getYCoord = (value: number) => {
+    const ratio = (value - minY) / yRange;
+    return height - bottomPadding - ratio * plotHeight;
+  };
+
+  const seriesToPath = (series: number[]) =>
+    series
+      .map((value, idx) => {
+        const x = getXCoord(data.grid[idx], idx);
+        const y = getYCoord(value);
+        return `${idx === 0 ? "M" : "L"}${x} ${y}`;
+      })
+      .join(" ");
+
+  const pdpPath = seriesToPath(data.pdp);
+  const icePaths = data.ice.slice(0, maxIceLines).map((curve) => seriesToPath(curve));
+  const xTicks = data.grid.map((value, idx) => ({
+    x: getXCoord(value, idx),
+    label: data.grid_labels[idx] ?? value.toString()
+  }));
+
+  return (
+    <Box>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="500px">
+        <rect
+          x={leftPadding}
+          y={topPadding}
+          width={plotWidth}
+          height={plotHeight}
+          fill="transparent"
+          stroke="#e0e0e0"
+        />
+        {icePaths.map((path, idx) => (
+          <path
+            key={`ice-${idx}`}
+            d={path}
+            fill="none"
+            stroke="rgba(33, 150, 243, 0.25)"
+            strokeWidth={1}
+          />
+        ))}
+        <path d={pdpPath} fill="none" stroke="#d32f2f" strokeWidth={3} />
+        <line
+          x1={leftPadding}
+          y1={height - bottomPadding}
+          x2={leftPadding + plotWidth}
+          y2={height - bottomPadding}
+          stroke="#9e9e9e"
+          strokeWidth={1.5}
+        />
+        <line 
+          x1={leftPadding} 
+          y1={topPadding} 
+          x2={leftPadding} 
+          y2={height - bottomPadding} 
+          stroke="#9e9e9e"
+          strokeWidth={1.5}
+        />
+        {yTicks.map((tick, idx) => (
+          <g key={`y-tick-${idx}`}>
+            <line
+              x1={leftPadding - 6}
+              x2={leftPadding}
+              y1={tick.y}
+              y2={tick.y}
+              stroke="#9e9e9e"
+            />
+            <text
+              x={leftPadding - 12}
+              y={tick.y}
+              textAnchor="end"
+              fontSize={11}
+              fill="#616161"
+              dominantBaseline="middle"
+            >
+              {tick.label}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((tick, idx) => (
+          <g key={`tick-${idx}`}>
+            <line
+              x1={tick.x}
+              x2={tick.x}
+              y1={height - bottomPadding}
+              y2={height - bottomPadding + 6}
+              stroke="#9e9e9e"
+            />
+            <text
+              x={tick.x}
+              y={height - bottomPadding + 22}
+              textAnchor="middle"
+              fontSize={11}
+              fill="#616161"
+            >
+              {tick.label}
+            </text>
+          </g>
+        ))}
+        <text
+          x={leftPadding + plotWidth / 2}
+          y={height - 12}
+          textAnchor="middle"
+          fontSize={13}
+          fill="#424242"
+          fontWeight={500}
+        >
+          {data.feature}
+        </text>
+        <text
+          transform={`rotate(-90 ${24} ${topPadding + plotHeight / 2})`}
+          x={24}
+          y={topPadding + plotHeight / 2}
+          textAnchor="middle"
+          fontSize={13}
+          fill="#424242"
+          fontWeight={500}
+        >
+          P(Heart Disease)
+        </text>
+      </svg>
+      <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: "wrap" }}>
+        <Chip size="small" label="Partial Dependence" sx={{ bgcolor: '#ffebee', color: '#c62828' }} />
+        <Chip size="small" label={`ICE samples (${maxIceLines} shown)`} sx={{ bgcolor: '#e3f2fd', color: '#1565c0' }} />
+        <Chip size="small" label={MODEL_LABELS[data.model]} />
+      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+        PDP shows the average effect as the red curve. Lighter blue lines show individual conditional
+        expectations from representative patients.
+      </Typography>
+    </Box>
+  );
+};
+
 export default function PredictionForm() {
   const [form, setForm] = useState<PredictRequest>({
     age: 50,
@@ -284,6 +490,11 @@ export default function PredictionForm() {
   const [explanations, setExplanations] = useState<ExplainResponse | null>(null);
   const [modelForExplain, setModelForExplain] = useState<"rf" | "xgb" | "nn">("rf");
   const [explanationMethod, setExplanationMethod] = useState<"shap" | "lime">("shap");
+  const [pdpModel, setPdpModel] = useState<"rf" | "xgb" | "nn">("rf");
+  const [pdpFeature, setPdpFeature] = useState<string>("Age");
+  const [pdpData, setPdpData] = useState<PdpIceResponse | null>(null);
+  const [pdpLoading, setPdpLoading] = useState(false);
+  const [pdpError, setPdpError] = useState<string | null>(null);
 
   function update<K extends keyof PredictRequest>(key: K, value: PredictRequest[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -303,6 +514,8 @@ export default function PredictionForm() {
     setError(null);
     setResult(null);
     setExplanations(null);
+    setPdpData(null);
+    setPdpError(null);
     try {
       const validationError = validate(form);
       if (validationError) throw new Error(validationError);
@@ -321,6 +534,44 @@ export default function PredictionForm() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (explanations?.feature_names && explanations.feature_names.length > 0) {
+      if (!explanations.feature_names.includes(pdpFeature)) {
+        setPdpFeature(explanations.feature_names[0]);
+      }
+    }
+  }, [explanations, pdpFeature]);
+
+  const featureOptions = explanations?.feature_names ?? DEFAULT_FEATURE_OPTIONS;
+  const isFeatureCategorical = PDP_CATEGORICAL.has(pdpFeature);
+
+  const handleFetchPdp = async () => {
+    if (!result) {
+      setPdpError("Run a prediction first to unlock partial dependence plots.");
+      return;
+    }
+    try {
+      setPdpLoading(true);
+      setPdpError(null);
+      const response = await fetchPdp({
+        feature: pdpFeature,
+        model: pdpModel,
+        grid_resolution: isFeatureCategorical ? undefined : 25,
+        ice_count: 20
+      });
+      if (!response.ok || !hasPdpPayload(response)) {
+        throw new Error(response.error || "Unable to generate PDP/ICE data");
+      }
+      setPdpData(response);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to generate PDP/ICE curves";
+      setPdpError(message);
+      setPdpData(null);
+    } finally {
+      setPdpLoading(false);
+    }
+  };
 
   return (
     <Box>
@@ -946,11 +1197,20 @@ export default function PredictionForm() {
                       <Card>
                         <CardContent>
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                            Note
+                            SHAP Feature Importance - Neural Network
                           </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Neural networks use SHAP explanations instead of feature importance, as they don't have built-in feature importance scores like tree-based models.
-                          </Typography>
+                          {explanations.plots.importance_nn ? (
+                            <Box
+                              component="img"
+                              src={`data:image/png;base64,${explanations.plots.importance_nn}`}
+                              alt="FI NN (SHAP)"
+                              sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Neural networks use SHAP explanations instead of tree-based feature importance. Run another explanation if this visualization fails to generate.
+                            </Typography>
+                          )}
                         </CardContent>
                       </Card>
                     </>
@@ -1051,11 +1311,20 @@ export default function PredictionForm() {
                       <Card>
                         <CardContent>
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                            Note
+                            LIME Feature Importance - Neural Network
                           </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            LIME provides local explanations by training a simple interpretable model around the prediction. This complements SHAP explanations for comprehensive model interpretability.
-                          </Typography>
+                          {explanations.plots.importance_nn_lime ? (
+                            <Box
+                              component="img"
+                              src={`data:image/png;base64,${explanations.plots.importance_nn_lime}`}
+                              alt="FI NN (LIME)"
+                              sx={{ width: '100%', height: 'auto', borderRadius: 1, border: 1, borderColor: 'divider', bgcolor: 'white' }}
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              LIME importance visualization not available. Try rerunning the explanation to regenerate the plot.
+                            </Typography>
+                          )}
                         </CardContent>
                       </Card>
                     </>
@@ -1111,6 +1380,79 @@ export default function PredictionForm() {
                   </CardContent>
                 </Card>
               )}
+            </Box>
+          )}
+
+          {result && (
+            <Box sx={{ mt: 6 }}>
+              <Typography variant="h5" component="h3" gutterBottom>
+                Partial Dependence & ICE Explorer
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3, maxWidth: 640 }}>
+                Understand how varying a single feature changes the model&apos;s predicted probability,
+                while keeping the rest of the patient context anchored to real records.
+              </Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 3 }}>
+                <FormControl fullWidth sx={{ minWidth: 200 }}>
+                  <InputLabel id="pdp-model-label">Model</InputLabel>
+                  <Select
+                    labelId="pdp-model-label"
+                    value={pdpModel}
+                    label="Model"
+                    onChange={(e) => setPdpModel(e.target.value as "rf" | "xgb" | "nn")}
+                  >
+                    <MenuItem value="rf">Random Forest</MenuItem>
+                    <MenuItem value="xgb">XGBoost</MenuItem>
+                    <MenuItem value="nn">Neural Network</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth sx={{ minWidth: 200 }}>
+                  <InputLabel id="pdp-feature-label">Feature</InputLabel>
+                  <Select
+                    labelId="pdp-feature-label"
+                    value={pdpFeature}
+                    label="Feature"
+                    onChange={(e) => setPdpFeature(e.target.value)}
+                  >
+                    {featureOptions.map((feature) => (
+                      <MenuItem key={feature} value={feature}>
+                        {feature.replace('_', ' ')}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  variant="outlined"
+                  onClick={handleFetchPdp}
+                  disabled={pdpLoading}
+                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' }, minWidth: 180 }}
+                >
+                  {pdpLoading ? 'Generating...' : 'Generate Curves'}
+                </Button>
+              </Stack>
+              {pdpError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {pdpError}
+                </Alert>
+              )}
+              <Card>
+                <CardContent>
+                  {pdpLoading && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                      <CircularProgress />
+                    </Box>
+                  )}
+                  {!pdpLoading && hasPdpPayload(pdpData) && (
+                    <PdpIceChart data={pdpData} />
+                  )}
+                  {!pdpLoading && !hasPdpPayload(pdpData) && (
+                    <Typography variant="body2" color="text.secondary">
+                      Select a feature and click &quot;Generate Curves&quot; to view the partial dependence and ICE
+                      visualization for that model.
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
             </Box>
           )}
         </Box>
