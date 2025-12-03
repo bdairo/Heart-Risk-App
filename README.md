@@ -144,5 +144,3 @@ Ensure the frontend is configured to call the backend at `http://localhost:5000`
   cd frontend
   npm run lint
   ```
-
-Backend currently has no automated test suite in this repo; you can add `pytest`-based tests under `backend/` if desired.
