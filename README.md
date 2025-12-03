@@ -17,7 +17,7 @@ The backend serves multiple models (Random Forest, XGBoost, Neural Network) with
 - **PDP/ICE explorer**  
   <img src="frontend/src/assets/pdp.png" alt="PDP/ICE" width="600" />
 
-- **Web app UI (add your own screenshot)**  
+- **Web app UI**  
   <img src="frontend/src/assets/ui.png" alt="UI" width="600" />
 
 ### Project Structure
